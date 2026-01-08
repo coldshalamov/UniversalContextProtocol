@@ -1,0 +1,224 @@
+# =============================================================================
+# Universal Context Protocol (UCP) Configuration
+# =============================================================================
+# UCP is an intelligent gateway that solves "Tool Overload" by dynamically
+# injecting only the relevant tool schemas based on conversation context.
+#
+# Copy this file to ucp_config.yaml and customize for your setup.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Server Configuration
+# -----------------------------------------------------------------------------
+server:
+  name: "UCP Gateway"
+  version: "0.1.0"
+  # Transport protocol: stdio (for Claude Desktop), sse, or streamable-http
+  transport: stdio
+  # For HTTP transports:
+  host: "127.0.0.1"
+  port: 8765
+
+# -----------------------------------------------------------------------------
+# Tool Zoo Configuration (Vector Index)
+# -----------------------------------------------------------------------------
+# The Tool Zoo stores embeddings of all tool schemas for semantic retrieval.
+tool_zoo:
+  # Embedding model from sentence-transformers
+  # Options: all-MiniLM-L6-v2 (fast), all-mpnet-base-v2 (better quality)
+  embedding_model: "all-MiniLM-L6-v2"
+
+  # ChromaDB collection name
+  collection_name: "ucp_tools"
+
+  # Where to persist the vector database
+  persist_directory: "./data/chromadb"
+
+  # Default number of tools to retrieve
+  top_k: 5
+
+  # Minimum similarity score (0-1) to include a tool
+  similarity_threshold: 0.3
+
+# -----------------------------------------------------------------------------
+# Router Configuration (The Brain)
+# -----------------------------------------------------------------------------
+# The router predicts which tools are needed based on conversation context.
+router:
+  # Routing strategy:
+  # - semantic: Pure embedding similarity
+  # - keyword: BM25-style keyword matching
+  # - hybrid: Combined semantic + keyword (recommended)
+  mode: hybrid
+
+  # Apply re-ranking to improve relevance
+  rerank: true
+
+  # Maximum tools to inject per turn
+  max_tools: 10
+
+  # Minimum tools to always include (prevents empty context)
+  min_tools: 1
+
+  # Tools to always include as fallback (fully qualified names)
+  fallback_tools: []
+
+# -----------------------------------------------------------------------------
+# Session Configuration (Memory/State)
+# -----------------------------------------------------------------------------
+session:
+  # Where to persist session state:
+  # - memory: In-memory only (lost on restart)
+  # - sqlite: SQLite database (recommended)
+  # - redis: Redis server (for distributed setups)
+  persistence: sqlite
+
+  # SQLite database path
+  sqlite_path: "./data/sessions.db"
+
+  # Session time-to-live in seconds (1 hour default)
+  ttl_seconds: 3600
+
+  # Maximum messages to keep in active context
+  max_messages: 100
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+log_level: INFO  # DEBUG, INFO, WARNING, ERROR
+
+# -----------------------------------------------------------------------------
+# Downstream MCP Servers
+# -----------------------------------------------------------------------------
+# UCP connects to these servers and orchestrates their tools.
+# Each server's tools are indexed in the Tool Zoo.
+downstream_servers:
+
+  # -------------------------
+  # Example: File System
+  # -------------------------
+  # - name: filesystem
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-filesystem"
+  #     - "/home/user/documents"  # Allowed directory
+  #   tags:
+  #     - files
+  #     - local
+  #     - documents
+  #   description: "Local file system access for documents"
+
+  # -------------------------
+  # Example: GitHub
+  # -------------------------
+  # - name: github
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-github"
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_xxxxxxxxxxxx"
+  #   tags:
+  #     - code
+  #     - git
+  #     - github
+  #     - vcs
+  #   description: "GitHub repository operations"
+
+  # -------------------------
+  # Example: Slack
+  # -------------------------
+  # - name: slack
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-slack"
+  #   env:
+  #     SLACK_BOT_TOKEN: "xoxb-xxxxxxxxxxxx"
+  #   tags:
+  #     - communication
+  #     - slack
+  #     - messaging
+  #   description: "Slack workspace messaging"
+
+  # -------------------------
+  # Example: Google Drive
+  # -------------------------
+  # - name: gdrive
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-gdrive"
+  #   env:
+  #     GOOGLE_APPLICATION_CREDENTIALS: "/path/to/credentials.json"
+  #   tags:
+  #     - files
+  #     - cloud
+  #     - gdrive
+  #     - documents
+  #   description: "Google Drive file access"
+
+  # -------------------------
+  # Example: Brave Search
+  # -------------------------
+  # - name: brave-search
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-brave-search"
+  #   env:
+  #     BRAVE_API_KEY: "BSAxxxxxxxxxxxx"
+  #   tags:
+  #     - search
+  #     - web
+  #     - research
+  #   description: "Web search via Brave"
+
+  # -------------------------
+  # Example: PostgreSQL
+  # -------------------------
+  # - name: postgres
+  #   transport: stdio
+  #   command: npx
+  #   args:
+  #     - "-y"
+  #     - "@modelcontextprotocol/server-postgres"
+  #     - "postgresql://user:pass@localhost/mydb"
+  #   tags:
+  #     - database
+  #     - sql
+  #     - postgres
+  #   description: "PostgreSQL database access"
+
+  # -------------------------
+  # Example: Custom Python Server
+  # -------------------------
+  # - name: my-custom-server
+  #   transport: stdio
+  #   command: python
+  #   args:
+  #     - "-m"
+  #     - "my_mcp_server"
+  #   env:
+  #     MY_API_KEY: "xxxxxxxxxxxx"
+  #   tags:
+  #     - custom
+  #     - internal
+  #   description: "My custom MCP server"
+
+  # -------------------------
+  # Example: SSE Server (Remote)
+  # -------------------------
+  # - name: remote-api
+  #   transport: sse
+  #   url: "https://api.example.com/mcp/sse"
+  #   tags:
+  #     - remote
+  #     - api
+  #   description: "Remote MCP server via SSE"

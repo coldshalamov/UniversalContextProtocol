@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ucp": {
+      "command": "ucp",
+      "args": ["serve", "-c", "path/to/ucp_config.yaml"],
+      "env": {
+        "UCP_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
