@@ -1,0 +1,46 @@
+[
+  {
+    "mode": "baseline",
+    "task_id": "task_001",
+    "visible_tools_count": 1,
+    "expected_tool_visible": true,
+    "success": false,
+    "duration": 0.0042226314544677734,
+    "trace": [
+      "mock-server.mock.calculate"
+    ]
+  },
+  {
+    "mode": "baseline",
+    "task_id": "task_002",
+    "visible_tools_count": 1,
+    "expected_tool_visible": true,
+    "success": false,
+    "duration": 0.004117727279663086,
+    "trace": [
+      "mock-server.mock.echo"
+    ]
+  },
+  {
+    "mode": "ucp",
+    "task_id": "task_001",
+    "visible_tools_count": 1,
+    "expected_tool_visible": true,
+    "success": false,
+    "duration": 0.004083395004272461,
+    "trace": [
+      "mock-server.mock.calculate"
+    ]
+  },
+  {
+    "mode": "ucp",
+    "task_id": "task_002",
+    "visible_tools_count": 1,
+    "expected_tool_visible": true,
+    "success": false,
+    "duration": 0.003971099853515625,
+    "trace": [
+      "mock-server.mock.echo"
+    ]
+  }
+]

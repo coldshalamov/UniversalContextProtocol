@@ -3,6 +3,7 @@ import json
 import sys
 import os
 import time
+import tempfile
 from typing import List, Dict, Any
 from pathlib import Path
 
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from ucp.server import UCPServer
 from ucp.config import UCPConfig, DownstreamServerConfig, ToolZooConfig, RouterConfig, SessionConfig
+from ucp.connection_pool import ConnectionPool
 
 async def run_eval(tasks_path: str, report_path: str):
     print(f"Loading tasks from {tasks_path}...")
@@ -27,11 +29,14 @@ async def run_eval(tasks_path: str, report_path: str):
         args=[mock_server_path],
         tags=["mock"]
     )
+    
+    temp_dir_baseline = tempfile.mkdtemp()
+    temp_dir_ucp = tempfile.mkdtemp()
 
     # Baseline Config: Expose ALL tools (simulated by high top_k)
     baseline_config = UCPConfig(
         server={"name": "baseline", "transport": "stdio"},
-        tool_zoo=ToolZooConfig(top_k=100, similarity_threshold=0.0, persist_directory=":memory:"),
+        tool_zoo=ToolZooConfig(top_k=100, similarity_threshold=0.0, persist_directory=temp_dir_baseline),
         router=RouterConfig(mode="keyword", max_tools=100),
         session=SessionConfig(persistence="memory"),
         downstream_servers=[downstream]
@@ -40,7 +45,7 @@ async def run_eval(tasks_path: str, report_path: str):
     # UCP Config: Strict filtering
     ucp_config = UCPConfig(
         server={"name": "ucp", "transport": "stdio"},
-        tool_zoo=ToolZooConfig(top_k=1, similarity_threshold=0.1, persist_directory=":memory:"),
+        tool_zoo=ToolZooConfig(top_k=1, similarity_threshold=0.1, persist_directory=temp_dir_ucp),
         router=RouterConfig(mode="keyword", max_tools=1),
         session=SessionConfig(persistence="memory"),
         downstream_servers=[downstream]
@@ -65,21 +70,31 @@ async def run_eval(tasks_path: str, report_path: str):
 
 async def run_suite(mode: str, config: UCPConfig, tasks: List[Dict]) -> List[Dict]:
     server = UCPServer(config)
+    # FORCE EAGER CONNECTION POOL
+    # The default LazyConnectionPool does not index tools on connect_all(), causing 0 tools to be found.
+    # We swap it for the base ConnectionPool which connects eagerly.
+    server.connection_pool = ConnectionPool(config)
+    
     await server.initialize()
     
     suite_results = []
     
     for task in tasks:
         print(f"[{mode}] Running task: {task['id']}")
+        # Reset session to ensure independent evaluation
+        server._current_session = None
+        
         start_time = time.time()
         
         # 1. Update Context
         await server.update_context(task['prompt'])
         
         # 2. List Tools (Simulate LLM seeing tools)
-        tools_resp = await server.list_tools()
-        tools_list = tools_resp.get("tools", [])
-        visible_tool_names = [t['name'] for t in tools_list]
+        # We access the internal method _list_tools() because we are testing the server logic directly
+        # and not going through the MCP protocol layer which wraps this.
+        tools_list_objects = await server._list_tools()
+        # tools_list_objects is a list of mcp.types.Tool objects
+        visible_tool_names = [t.name for t in tools_list_objects]
         
         # 3. Check if expected tool is visible
         expected_tool = task['expected_tool']
@@ -94,8 +109,13 @@ async def run_suite(mode: str, config: UCPConfig, tasks: List[Dict]) -> List[Dic
             # In a real harness, we'd use an LLM here to generate args
             args = task.get("expected_args_subset", {})
             try:
-                execution_result = await server.call_tool(expected_tool, args)
-                success = True
+                result_obj = await server._call_tool(expected_tool, args)
+                if result_obj.success:
+                    execution_result = result_obj.result
+                    success = True
+                else:
+                    execution_result = result_obj.error
+                    success = False
             except Exception as e:
                 execution_result = str(e)
                 success = False

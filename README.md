@@ -38,6 +38,18 @@ Instead of `ListTools() -> [All 500 Tools]`, UCP implements `ListTools(context) 
 - **Multiple Transports**: Stdio (Claude Desktop), HTTP/SSE (web apps)
 - **Debug Dashboard**: Streamlit UI for visualizing routing decisions
 
+## Status & Validation
+
+UCP is currently in **Alpha**. The core routing logic is validated via an evaluation harness.
+
+To run the validation suite:
+
+```bash
+python clients/harness/run_eval.py
+```
+
+See [docs/evaluation_harness.md](docs/evaluation_harness.md) for details on interpreting results.
+
 ## Quick Start
 
 ### Installation

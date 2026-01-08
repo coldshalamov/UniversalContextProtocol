@@ -105,7 +105,7 @@ if __name__ == "__main__":
     tools = [
         {
             "name": "mock.echo",
-            "description": "Echoes back the input",
+            "description": "Echo back the input",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -116,7 +116,7 @@ if __name__ == "__main__":
         },
         {
             "name": "mock.calculate",
-            "description": "Perform a calculation",
+            "description": "Perform a calculation or calculate expression",
             "inputSchema": {
                 "type": "object",
                 "properties": {

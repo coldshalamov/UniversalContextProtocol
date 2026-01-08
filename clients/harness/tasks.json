@@ -2,13 +2,13 @@
     {
         "id": "task_001",
         "prompt": "Calculate 50 plus 100",
-        "expected_tool": "mock.calculate",
+        "expected_tool": "mock-server.mock.calculate",
         "expected_args_subset": {"expression": "50 plus 100"}
     },
     {
         "id": "task_002",
         "prompt": "Echo the word 'banana'",
-        "expected_tool": "mock.echo",
+        "expected_tool": "mock-server.mock.echo",
         "expected_args_subset": {"message": "banana"}
     }
 ]
