@@ -1,0 +1,120 @@
+# UCP Chat Configuration
+# This file should be placed at ~/.ucp/config.yaml
+
+# Default provider to use
+default_provider: anthropic
+
+# Provider configurations
+providers:
+  openai:
+    # Use environment variable for API key (recommended)
+    # Or store directly: api_key: sk-...
+    api_key: ${OPENAI_API_KEY}
+    api_base: https://api.openai.com/v1
+    default_model: gpt-4o
+
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    api_base: https://api.anthropic.com
+    default_model: claude-sonnet-4-20250514
+
+  google:
+    api_key: ${GOOGLE_API_KEY}
+    api_base: https://generativelanguage.googleapis.com/v1beta
+    default_model: gemini-2.0-flash
+
+  groq:
+    api_key: ${GROQ_API_KEY}
+    api_base: https://api.groq.com/openai/v1
+    default_model: llama-3.3-70b-versatile
+
+  together:
+    api_key: ${TOGETHER_API_KEY}
+    api_base: https://api.together.xyz/v1
+    default_model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+
+  openrouter:
+    api_key: ${OPENROUTER_API_KEY}
+    api_base: https://openrouter.ai/api/v1
+    default_model: anthropic/claude-3.5-sonnet
+
+  deepseek:
+    api_key: ${DEEPSEEK_API_KEY}
+    api_base: https://api.deepseek.com/v1
+    default_model: deepseek-chat
+
+  mistral:
+    api_key: ${MISTRAL_API_KEY}
+    api_base: https://api.mistral.ai/v1
+    default_model: mistral-large-latest
+
+  xai:
+    api_key: ${XAI_API_KEY}
+    api_base: https://api.x.ai/v1
+    default_model: grok-beta
+
+  perplexity:
+    api_key: ${PERPLEXITY_API_KEY}
+    api_base: https://api.perplexity.ai
+    default_model: sonar-pro
+
+  cohere:
+    api_key: ${COHERE_API_KEY}
+    api_base: https://api.cohere.ai/v1
+    default_model: command-r-plus
+
+  fireworks:
+    api_key: ${FIREWORKS_API_KEY}
+    api_base: https://api.fireworks.ai/inference/v1
+    default_model: accounts/fireworks/models/llama-v3p1-70b-instruct
+
+  # Local providers
+  ollama:
+    api_base: http://localhost:11434/v1
+    default_model: llama3.2
+
+  lmstudio:
+    api_base: http://localhost:1234/v1
+    default_model: local-model
+
+# UCP Server Integration
+ucp:
+  # Enable UCP tool injection
+  enabled: true
+  
+  # UCP server URL
+  server_url: http://localhost:8765
+  
+  # Maximum tools to inject per request
+  max_tools: 5
+  
+  # Directory for context logs (used for training)
+  log_directory: ~/.ucp/logs
+  
+  # Send usage feedback to UCP for learning
+  feedback_enabled: true
+
+# UI Theme Settings
+theme:
+  # Color scheme: dark, light, or auto
+  color_scheme: auto
+  
+  # Show token usage after responses
+  show_token_usage: true
+  
+  # Enable syntax highlighting in code blocks
+  syntax_highlighting: true
+  
+  # Show timestamps on messages
+  show_timestamps: false
+
+# Session Management
+sessions:
+  # Directory to store chat sessions
+  directory: ~/.ucp/sessions
+  
+  # Auto-save sessions
+  auto_save: true
+  
+  # Maximum sessions to keep
+  max_sessions: 100

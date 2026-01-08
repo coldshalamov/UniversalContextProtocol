@@ -6,8 +6,9 @@ and intelligent tool injection.
 """
 
 __version__ = "0.1.0"
-__all__ = ["ChatSession", "Provider", "UCPClient"]
+__all__ = ["ChatSession", "Provider", "UCPClient", "app"]
 
 from ucp_chat.providers import Provider
 from ucp_chat.session import ChatSession
 from ucp_chat.ucp_client import UCPClient
+from ucp_chat.cli import app
