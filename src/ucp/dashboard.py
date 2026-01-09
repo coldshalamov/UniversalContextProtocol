@@ -14,14 +14,12 @@ Run with: streamlit run src/ucp/dashboard.py
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 try:
     import streamlit as st
     import pandas as pd
-    import numpy as np
     STREAMLIT_AVAILABLE = True
 except ImportError:
     STREAMLIT_AVAILABLE = False

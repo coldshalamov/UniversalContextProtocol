@@ -81,7 +81,7 @@ class MockMCPServer:
             result_content = [{"type": "text", "text": f"Executed {tool_name} with {args}"}]
             
             # Allow controlling errors via tool name
-            if "error" in tool_name:
+            if "error" in tool_name or tool_name.endswith(".fail") or tool_name == "mock.fail":
                 response["error"] = {
                     "code": -32000,
                     "message": "Tool execution failed intentionally"

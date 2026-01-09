@@ -12,6 +12,11 @@ from ucp.connection_pool import ConnectionPool
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 
 @pytest.fixture
+def temp_dir():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield tmpdir
+
+@pytest.fixture
 def mock_downstream_config():
     return DownstreamServerConfig(
         name="mock-server",
@@ -23,8 +28,7 @@ def mock_downstream_config():
     )
 
 @pytest.fixture
-def ucp_config(mock_downstream_config):
-    temp_dir = tempfile.mkdtemp()
+def ucp_config(mock_downstream_config, temp_dir):
     return UCPConfig(
         server={"name": "test-ucp", "transport": "stdio"},
         tool_zoo=ToolZooConfig(top_k=2, similarity_threshold=0.0, persist_directory=temp_dir), # Low k to test filtering
@@ -39,7 +43,10 @@ async def ucp_server(ucp_config):
     # FORCE EAGER CONNECTION POOL for tests
     server.connection_pool = ConnectionPool(ucp_config)
     await server.initialize()
-    return server
+    try:
+        yield server
+    finally:
+        await server.shutdown()
 
 @pytest.mark.asyncio
 async def test_tools_list_protocol(ucp_server):
@@ -56,14 +63,14 @@ async def test_tools_list_protocol(ucp_server):
     
     # Should contain 'mock.echo' because of keyword match
     names = [t.name for t in tools]
-    assert "mock.echo" in names
+    assert any(name.endswith(".mock.echo") for name in names)
 
 @pytest.mark.asyncio
 async def test_tools_call_proxy(ucp_server):
     """Verify tools/call proxies to downstream server."""
     
     # Call the mock tool
-    result_obj = await ucp_server._call_tool("mock.echo", {"message": "hello world"})
+    result_obj = await ucp_server._call_tool("mock-server.mock.echo", {"message": "hello world"})
     
     assert result_obj.success is True
     # The result content structure depends on how downstream returns it.
@@ -71,8 +78,8 @@ async def test_tools_call_proxy(ucp_server):
     # ConnectionPool returns the 'result' part of JSON-RPC response.
     # So result_obj.result should contain 'content'
     
-    assert "content" in result_obj.result
-    assert result_obj.result["content"][0]["text"] == "Executed mock.echo with {'message': 'hello world'}"
+    assert result_obj.result is not None
+    assert result_obj.result.content[0].text == "Executed mock.echo with {'message': 'hello world'}"
 
 @pytest.mark.asyncio
 async def test_tools_call_error_proxy(ucp_server):
@@ -82,8 +89,7 @@ async def test_tools_call_error_proxy(ucp_server):
     # unless connection fails.
     # But let's check the implementation. It catches Exception and returns success=False.
     
-    result_obj = await ucp_server._call_tool("mock.fail", {})
+    result_obj = await ucp_server._call_tool("mock-server.mock.fail", {})
     
     assert result_obj.success is False
     assert "failed" in result_obj.error or "intentionally" in result_obj.error
-

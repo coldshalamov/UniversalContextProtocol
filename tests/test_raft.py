@@ -53,7 +53,8 @@ def tool_zoo(temp_dir):
         ),
     ]
     zoo.add_tools(tools)
-    return zoo
+    yield zoo
+    zoo.close()
 
 
 class TestRAFTDataGenerator:

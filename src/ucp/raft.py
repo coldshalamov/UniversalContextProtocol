@@ -22,11 +22,9 @@ import json
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import structlog
 
-from ucp.models import ToolSchema
 from ucp.tool_zoo import ToolZoo
 
 logger = structlog.get_logger(__name__)

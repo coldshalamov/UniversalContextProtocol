@@ -14,12 +14,10 @@ each pipeline stage.
 
 from __future__ import annotations
 
-import hashlib
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import structlog
@@ -29,7 +27,7 @@ from ucp.models import SessionState, ToolSchema
 from ucp.telemetry import CandidateInfo, RoutingEvent, hash_query
 
 if TYPE_CHECKING:
-    from ucp.tool_zoo import HybridToolZoo, ToolZoo
+    from ucp.tool_zoo import HybridToolZoo
     from ucp.bandit import SharedBanditScorer
     from ucp.online_opt import ToolBiasStore
 
@@ -369,13 +367,12 @@ def get_reranker(
     """Factory function for rerankers."""
     if use_cross_encoder:
         try:
-            from sentence_transformers import CrossEncoder
             return CrossEncoderReranker(
-                model_name=model_name or "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                model_name=model_name or "cross-encoder/ms-marco-MiniLM-L-6-v2" 
             )
         except ImportError:
             logger.warning("cross_encoder_not_available_falling_back")
-    
+
     return LightweightReranker()
 
 

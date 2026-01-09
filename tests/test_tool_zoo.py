@@ -27,6 +27,23 @@ def tool_zoo_config(temp_dir):
         similarity_threshold=0.1,
     )
 
+@pytest.fixture
+def tool_zoo(tool_zoo_config):
+    """Create an initialized ToolZoo that is properly closed after each test."""
+    zoo = ToolZoo(tool_zoo_config)
+    zoo.initialize()
+    yield zoo
+    zoo.close()
+
+
+@pytest.fixture
+def hybrid_tool_zoo(tool_zoo_config):
+    """Create an initialized HybridToolZoo that is properly closed after each test."""
+    zoo = HybridToolZoo(tool_zoo_config)
+    zoo.initialize()
+    yield zoo
+    zoo.close()
+
 
 @pytest.fixture
 def sample_tools():
@@ -117,115 +134,93 @@ def sample_tools():
 class TestToolZoo:
     """Tests for the basic ToolZoo."""
 
-    def test_initialize(self, tool_zoo_config):
+    def test_initialize(self, tool_zoo):
         """Test zoo initialization."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
+        assert tool_zoo._initialized
+        assert tool_zoo._collection is not None
 
-        assert zoo._initialized
-        assert zoo._collection is not None
-
-    def test_add_tools(self, tool_zoo_config, sample_tools):
+    def test_add_tools(self, tool_zoo, sample_tools):
         """Test adding tools to the zoo."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-
-        count = zoo.add_tools(sample_tools)
+        count = tool_zoo.add_tools(sample_tools)
         assert count == len(sample_tools)
-        assert len(zoo.get_all_tools()) == len(sample_tools)
+        assert len(tool_zoo.get_all_tools()) == len(sample_tools)
 
-    def test_search_semantic(self, tool_zoo_config, sample_tools):
+    def test_search_semantic(self, tool_zoo, sample_tools):
         """Test semantic search for tools."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
         # Search for email-related tools
-        results = zoo.search("send an email to john", top_k=3)
+        results = tool_zoo.search("send an email to john", top_k=3)
 
         assert len(results) > 0
         tool_names = [t.name for t, _ in results]
         assert "gmail.send_email" in tool_names
 
-    def test_search_payment(self, tool_zoo_config, sample_tools):
+    def test_search_payment(self, tool_zoo, sample_tools):
         """Test search for payment tools."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
-        results = zoo.search("charge the customer credit card", top_k=3)
+        results = tool_zoo.search("charge the customer credit card", top_k=3)
 
         assert len(results) > 0
         tool_names = [t.name for t, _ in results]
         assert "stripe.create_charge" in tool_names
 
-    def test_get_tool(self, tool_zoo_config, sample_tools):
+    def test_get_tool(self, tool_zoo, sample_tools):
         """Test getting a specific tool."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
-        tool = zoo.get_tool("gmail.send_email")
+        tool = tool_zoo.get_tool("gmail.send_email")
         assert tool is not None
         assert tool.server_name == "gmail"
 
-    def test_get_tools_by_server(self, tool_zoo_config, sample_tools):
+    def test_get_tools_by_server(self, tool_zoo, sample_tools):
         """Test filtering tools by server."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
-        gmail_tools = zoo.get_tools_by_server("gmail")
+        gmail_tools = tool_zoo.get_tools_by_server("gmail")
         assert len(gmail_tools) == 2
         assert all(t.server_name == "gmail" for t in gmail_tools)
 
-    def test_remove_tools(self, tool_zoo_config, sample_tools):
+    def test_remove_tools(self, tool_zoo, sample_tools):
         """Test removing tools."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
-        initial_count = len(zoo.get_all_tools())
-        removed = zoo.remove_tools(["gmail.send_email"])
+        initial_count = len(tool_zoo.get_all_tools())
+        removed = tool_zoo.remove_tools(["gmail.send_email"])
 
         assert removed == 1
-        assert len(zoo.get_all_tools()) == initial_count - 1
-        assert zoo.get_tool("gmail.send_email") is None
+        assert len(tool_zoo.get_all_tools()) == initial_count - 1
+        assert tool_zoo.get_tool("gmail.send_email") is None
 
-    def test_clear(self, tool_zoo_config, sample_tools):
+    def test_clear(self, tool_zoo, sample_tools):
         """Test clearing all tools."""
-        zoo = ToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        tool_zoo.add_tools(sample_tools)
 
-        zoo.clear()
-        assert len(zoo.get_all_tools()) == 0
+        tool_zoo.clear()
+        assert len(tool_zoo.get_all_tools()) == 0
 
 
 class TestHybridToolZoo:
     """Tests for the HybridToolZoo with keyword search."""
 
-    def test_keyword_search(self, tool_zoo_config, sample_tools):
+    def test_keyword_search(self, hybrid_tool_zoo, sample_tools):
         """Test keyword-based search."""
-        zoo = HybridToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        hybrid_tool_zoo.add_tools(sample_tools)
 
         # Keywords should match
-        results = zoo.keyword_search("email inbox messages", top_k=3)
+        results = hybrid_tool_zoo.keyword_search("email inbox messages", top_k=3)
 
         assert len(results) > 0
         tool_names = [t.name for t, _ in results]
         # Should find gmail tools
         assert any("gmail" in name for name in tool_names)
 
-    def test_hybrid_search(self, tool_zoo_config, sample_tools):
+    def test_hybrid_search(self, hybrid_tool_zoo, sample_tools):
         """Test combined semantic + keyword search."""
-        zoo = HybridToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+        hybrid_tool_zoo.add_tools(sample_tools)
 
-        results = zoo.hybrid_search(
+        results = hybrid_tool_zoo.hybrid_search(
             "schedule a meeting for tomorrow",
             top_k=3,
             semantic_weight=0.6,
@@ -237,17 +232,15 @@ class TestHybridToolZoo:
         # Should find calendar tool
         assert "calendar.create_event" in tool_names
 
-    def test_hybrid_vs_semantic(self, tool_zoo_config, sample_tools):
-        """Test that hybrid search can find things semantic might miss."""
-        zoo = HybridToolZoo(tool_zoo_config)
-        zoo.initialize()
-        zoo.add_tools(sample_tools)
+    def test_hybrid_vs_semantic(self, hybrid_tool_zoo, sample_tools):
+        """Test that hybrid search can find things semantic might miss."""      
+        hybrid_tool_zoo.add_tools(sample_tools)
 
         # Query with specific keyword
         query = "github issue bug report"
 
-        semantic_results = zoo.search(query, top_k=3)
-        hybrid_results = zoo.hybrid_search(query, top_k=3)
+        semantic_results = hybrid_tool_zoo.search(query, top_k=3)
+        hybrid_results = hybrid_tool_zoo.hybrid_search(query, top_k=3)
 
         # Both should find github tool
         semantic_names = [t.name for t, _ in semantic_results]

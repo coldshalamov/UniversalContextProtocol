@@ -13,19 +13,14 @@ Key behaviors:
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Sequence
-from uuid import UUID
+from typing import Any, Sequence
 
 import structlog
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    CallToolResult,
     TextContent,
     Tool,
-    ListToolsResult,
 )
 
 from ucp.config import UCPConfig
@@ -243,8 +238,20 @@ class UCPServer:
         """Gracefully shutdown UCP."""
         logger.info("ucp_shutting_down")
 
-        await self.connection_pool.disconnect_all()
-        self.session_manager.close()
+        try:
+            await self.connection_pool.disconnect_all()
+        except Exception as e:
+            logger.warning("shutdown_error", component="connection_pool", error=str(e))
+
+        try:
+            self.tool_zoo.close()
+        except Exception as e:
+            logger.warning("shutdown_error", component="tool_zoo", error=str(e))
+
+        try:
+            self.session_manager.close()
+        except Exception as e:
+            logger.warning("shutdown_error", component="session_manager", error=str(e))
 
         logger.info("ucp_shutdown_complete")
 

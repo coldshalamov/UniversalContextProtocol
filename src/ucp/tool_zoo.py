@@ -262,6 +262,31 @@ class ToolZoo:
         self._tools_by_name.clear()
         logger.info("tool_zoo_cleared")
 
+    def close(self) -> None:
+        """
+        Release any underlying resources held by ChromaDB.
+
+        On Windows, Chroma can hold file locks (e.g., sqlite-vec segment files)
+        that prevent deleting temporary persistence directories during tests.
+        """
+        if not self._client:
+            return
+
+        try:
+            system = getattr(self._client, "_system", None)
+            if system and hasattr(system, "stop"):
+                try:
+                    system.stop()
+                except Exception as e:
+                    # Chroma's stop() is not always idempotent; if the underlying
+                    # system was already stopped elsewhere, we still want to proceed
+                    # with best-effort cleanup.
+                    logger.warning("tool_zoo_close_failed", error=str(e))
+        finally:
+            self._collection = None
+            self._client = None
+            self._initialized = False
+
 
 class HybridToolZoo(ToolZoo):
     """

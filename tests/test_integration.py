@@ -132,6 +132,7 @@ class TestFullIntegration:
 
         stats = server.tool_zoo.get_stats()
         assert stats["total_tools"] == len(sample_tools)
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_context_aware_tool_listing(self, test_config, sample_tools):
@@ -153,6 +154,7 @@ class TestFullIntegration:
         # Verify routing decision was made
         assert server._last_routing is not None
         assert len(server._last_routing.selected_tools) > 0
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_context_shift_updates_tools(self, test_config, sample_tools):
@@ -173,6 +175,7 @@ class TestFullIntegration:
 
         # Different contexts should yield different tools
         assert len(email_tools) > 0 or len(code_tools) > 0
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_session_persistence(self, test_config, sample_tools):
@@ -195,10 +198,12 @@ class TestFullIntegration:
         server2.tool_zoo.initialize()
 
         # Load same session
-        loaded_session = server2.session_manager.get_session(session_id)
+        loaded_session = server2.session_manager.get_session(session_id)        
 
         assert loaded_session is not None
         assert len(loaded_session.messages) == 2
+        await server.shutdown()
+        await server2.shutdown()
 
     @pytest.mark.asyncio
     async def test_tool_usage_tracking(self, test_config, sample_tools):
@@ -217,6 +222,7 @@ class TestFullIntegration:
 
         # Check usage stats
         assert server._current_session.tool_usage["email.send"] == 2
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_hybrid_search_effectiveness(self, test_config, sample_tools):
@@ -235,6 +241,7 @@ class TestFullIntegration:
 
         # Calendar tool should be found (semantic match for "schedule")
         assert "calendar.create_event" in tool_names
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_domain_detection(self, test_config, sample_tools):
@@ -250,8 +257,9 @@ class TestFullIntegration:
         domains_code = server.router.detect_domain("create a git branch")
         assert "code" in domains_code
 
-        domains_finance = server.router.detect_domain("charge the credit card")
+        domains_finance = server.router.detect_domain("charge the credit card") 
         assert "finance" in domains_finance
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_max_tools_respected(self, test_config, sample_tools):
@@ -267,6 +275,7 @@ class TestFullIntegration:
         tools = await server._list_tools()
 
         assert len(tools) <= 3
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_server_status(self, test_config, sample_tools):
@@ -284,6 +293,7 @@ class TestFullIntegration:
         assert "tool_zoo" in status
         assert "router" in status
         assert status["tool_zoo"]["total_tools"] == len(sample_tools)
+        await server.shutdown()
 
 
 class TestBuilderPattern:
@@ -298,6 +308,8 @@ class TestBuilderPattern:
         )
 
         assert server.config == test_config
+        server.tool_zoo.close()
+        server.session_manager.close()
 
     def test_builder_custom_components(self, test_config, temp_dir):
         """Test building server with custom components."""
@@ -318,6 +330,8 @@ class TestBuilderPattern:
 
         assert server.tool_zoo is custom_zoo
         assert server.router is custom_router
+        server.tool_zoo.close()
+        server.session_manager.close()
 
 
 class TestAdaptiveLearning:
@@ -347,6 +361,7 @@ class TestAdaptiveLearning:
             # Check co-occurrence learned
             cooccur = server.router.get_cooccurring_tools("email.send")
             assert "slack.send_message" in cooccur
+        await server.shutdown()
 
     @pytest.mark.asyncio
     async def test_export_training_data(self, test_config, sample_tools):
@@ -369,3 +384,4 @@ class TestAdaptiveLearning:
             assert "candidates" in training_data[0]
             assert "correct" in training_data[0]
             assert "email.send" in training_data[0]["correct"]
+        await server.shutdown()

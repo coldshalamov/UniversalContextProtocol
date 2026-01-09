@@ -11,10 +11,8 @@ Manages persistent connections to multiple MCP servers, handling:
 from __future__ import annotations
 
 import asyncio
-import subprocess
-from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any
 
 import structlog
 from mcp import ClientSession, StdioServerParameters
@@ -39,7 +37,9 @@ class ConnectionPool:
         self.config = config
         self._servers: dict[str, DownstreamServer] = {}
         self._sessions: dict[str, ClientSession] = {}
-        self._tool_to_server: dict[str, str] = {}  # tool_name -> server_name
+        self._stdio_tasks: dict[str, asyncio.Task[None]] = {}
+        self._stdio_stop_events: dict[str, asyncio.Event] = {}
+        self._tool_to_server: dict[str, str] = {}  # tool_name -> server_name   
         self._lock = asyncio.Lock()
 
     @property
@@ -124,24 +124,48 @@ class ConnectionPool:
             env={**server_config.env} if server_config.env else None,
         )
 
-        # Create the stdio client connection
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                # Initialize the session
-                await session.initialize()
+        # Keep the stdio client + session open for the lifetime of the pool.
+        #
+        # `stdio_client()` uses anyio under the hood. Some anyio-based transports require that
+        # async context managers are exited in the same asyncio.Task that entered them.
+        # Since `connect_all()` can connect in parallel, we run a dedicated background task
+        # per server to own the connection lifecycle.
+        stop_event = asyncio.Event()
+        self._stdio_stop_events[server_config.name] = stop_event
 
-                # Discover tools
-                tools_result = await session.list_tools()
-                server.tools = self._convert_tools(
-                    tools_result.tools, server_config.name, server_config.tags
-                )
+        loop = asyncio.get_running_loop()
+        ready: asyncio.Future[None] = loop.create_future()
 
-                # Register tool -> server mapping
-                for tool in server.tools:
-                    self._tool_to_server[tool.name] = server_config.name
+        async def run_connection() -> None:
+            try:
+                async with stdio_client(server_params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        # Initialize the session
+                        await session.initialize()
 
-                # Store session for later use
-                self._sessions[server_config.name] = session
+                        # Discover tools
+                        tools_result = await session.list_tools()
+                        server.tools = self._convert_tools(
+                            tools_result.tools, server_config.name, server_config.tags
+                        )
+
+                        # Register tool -> server mapping
+                        for tool in server.tools:
+                            self._tool_to_server[tool.name] = server_config.name
+
+                        # Store session for later use
+                        self._sessions[server_config.name] = session
+                        if not ready.done():
+                            ready.set_result(None)
+
+                        await stop_event.wait()
+            except Exception as e:
+                if not ready.done():
+                    ready.set_exception(e)
+                raise
+
+        self._stdio_tasks[server_config.name] = asyncio.create_task(run_connection())
+        await ready
 
     def _convert_tools(
         self, mcp_tools: list[Tool], server_name: str, tags: list[str]
@@ -175,26 +199,34 @@ class ConnectionPool:
             ValueError: If the tool is not found
             RuntimeError: If the server is not connected
         """
-        # Find the server for this tool
-        server_name = self._tool_to_server.get(tool_name)
+        requested_name = tool_name
 
-        # If not found, try stripping server prefix
+        # Find the server for this tool (fully-qualified name preferred)
+        server_name = self._tool_to_server.get(tool_name)
+        downstream_tool_name: str | None = None
+
+        # If the tool wasn't provided fully-qualified, only treat the prefix as a server name
+        # when it matches a configured server. This avoids mis-parsing tool names like
+        # "mock.echo" where "mock" is not a server name.
         if not server_name and "." in tool_name:
-            parts = tool_name.split(".", 1)
-            server_name = parts[0]
-            tool_name = parts[1]
-        elif not server_name:
-            # Search all servers
+            prefix, rest = tool_name.split(".", 1)
+            if prefix in self._servers:
+                server_name = prefix
+                downstream_tool_name = rest
+
+        # Search by downstream tool name (display_name) across all servers
+        if not server_name:
             for srv_name, srv in self._servers.items():
                 for t in srv.tools:
                     if t.display_name == tool_name:
                         server_name = srv_name
+                        downstream_tool_name = t.display_name
                         break
                 if server_name:
                     break
 
         if not server_name:
-            raise ValueError(f"Tool not found: {tool_name}")
+            raise ValueError(f"Tool not found: {requested_name}")
 
         server = self._servers.get(server_name)
         if not server or server.status != ServerStatus.CONNECTED:
@@ -204,26 +236,31 @@ class ConnectionPool:
         if not session:
             raise RuntimeError(f"No session for server: {server_name}")
 
-        # Extract just the tool name without server prefix
-        simple_name = tool_name.split(".")[-1] if "." in tool_name else tool_name
+        # If the tool name was fully-qualified, strip exactly the server prefix.
+        # (Downstream tools are allowed to contain dots.)
+        if downstream_tool_name is None:
+            prefix = f"{server_name}."
+            downstream_tool_name = tool_name[len(prefix):] if tool_name.startswith(prefix) else tool_name
 
         logger.debug(
             "routing_tool_call",
-            tool=simple_name,
+            tool=downstream_tool_name,
             server=server_name,
             arguments=arguments,
         )
 
         # Execute the tool call
-        result = await session.call_tool(simple_name, arguments)
+        result = await session.call_tool(downstream_tool_name, arguments)
         return result
 
     async def disconnect_all(self) -> None:
         """Disconnect from all servers."""
         for server_name, server in self._servers.items():
             try:
+                if server_name in self._stdio_stop_events:
+                    self._stdio_stop_events[server_name].set()
+
                 if server_name in self._sessions:
-                    # Session cleanup is handled by context manager
                     del self._sessions[server_name]
                 server.status = ServerStatus.DISCONNECTED
             except Exception as e:
@@ -232,6 +269,16 @@ class ConnectionPool:
                     server=server_name,
                     error=str(e),
                 )
+
+        # Await background connection tasks so their context managers close cleanly.
+        for server_name, task in list(self._stdio_tasks.items()):
+            try:
+                await task
+            except Exception as e:
+                logger.warning("disconnect_error", server=server_name, error=str(e))
+            finally:
+                self._stdio_tasks.pop(server_name, None)
+                self._stdio_stop_events.pop(server_name, None)
 
         self._tool_to_server.clear()
         logger.info("connection_pool_shutdown")

@@ -18,7 +18,6 @@ Extended with SOTA pipeline for:
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,9 +28,9 @@ from ucp.models import RoutingDecision, SessionState, ToolSchema
 if TYPE_CHECKING:
     from ucp.bandit import SharedBanditScorer
     from ucp.online_opt import ToolBiasStore
-    from ucp.routing_pipeline import RoutingPipeline, SelectionResult
+    from ucp.routing_pipeline import RoutingPipeline
     from ucp.telemetry import SQLiteTelemetryStore
-    from ucp.tool_zoo import HybridToolZoo, ToolZoo
+    from ucp.tool_zoo import ToolZoo
 
 logger = structlog.get_logger(__name__)
 
@@ -483,7 +482,7 @@ class SOTARouter(AdaptiveRouter):
         
         # Build reasoning
         reasoning_parts = [
-            f"Strategy: SOTA",
+            "Strategy: SOTA",
             f"Candidates: {len(result.all_candidates)}",
             f"Selected: {len(selected_tools)}",
             f"Tokens: {result.total_tokens}",

@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import structlog
 
@@ -355,6 +355,9 @@ class SessionManager:
 
         # Add summary as system message
         session.add_message("system", f"[Archived context] {summary}")
+        # Ensure the archive summary is first in the context window.
+        # (SessionState.add_message appends; the summary should lead.)
+        session.messages.insert(0, session.messages.pop())
 
         self.save_session(session)
         logger.info(
