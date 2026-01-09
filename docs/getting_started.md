@@ -4,8 +4,8 @@ This guide takes you from zero to running the Universal Context Protocol (UCP) g
 
 ## Prerequisites
 
-- Python 3.11+
-- pip
+- Python 3.11+ (tested on 3.11/3.12)
+- pip (or `uv`)
 
 ## 1. Installation
 
@@ -15,6 +15,14 @@ Clone the repository and install in editable mode:
 git clone https://github.com/Telomere/UniversalContextProtocol.git
 cd UniversalContextProtocol
 pip install -e ".[dev]"
+```
+
+If you have `uv` installed, this is typically faster and avoids system-Python issues:
+
+```bash
+uv python install 3.12
+uv venv --python 3.12
+uv pip install --python .venv -e ".[dev]"
 ```
 
 ## 2. Minimal Configuration
@@ -41,7 +49,7 @@ router:
 
 session:
   persistence: sqlite
-  db_path: "./data/sessions.db"
+  sqlite_path: "./data/sessions.db"
 
 downstream_servers:
   - name: github
