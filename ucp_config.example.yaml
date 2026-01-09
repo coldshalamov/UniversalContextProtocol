@@ -45,7 +45,12 @@ tool_zoo:
 # -----------------------------------------------------------------------------
 # The router predicts which tools are needed based on conversation context.
 router:
-  # Routing strategy:
+  # Selection strategy:
+  # - baseline: Traditional semantic routing with heuristics
+  # - sota: State-of-the-art pipeline with online learning
+  strategy: baseline
+
+  # Routing mode for candidate retrieval:
   # - semantic: Pure embedding similarity
   # - keyword: BM25-style keyword matching
   # - hybrid: Combined semantic + keyword (recommended)
@@ -62,6 +67,74 @@ router:
 
   # Tools to always include as fallback (fully qualified names)
   fallback_tools: []
+
+  # -------------------------
+  # SOTA Pipeline Options
+  # -------------------------
+  # Only used when strategy: sota
+
+  # Use cross-encoder for higher quality reranking (slower)
+  use_cross_encoder: false
+  cross_encoder_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+  # Number of candidates to retrieve before reranking
+  candidate_pool_size: 50
+
+  # Maximum token budget for injected tool schemas
+  max_context_tokens: 8000
+
+  # Maximum tools from a single server (diversity constraint)
+  max_per_server: 3
+
+  # Exploration rate for bandit (0.0 = no exploration, 1.0 = full random)
+  exploration_rate: 0.1
+
+  # Exploration type: epsilon (epsilon-greedy) or thompson (Thompson sampling)
+  exploration_type: epsilon
+
+# -----------------------------------------------------------------------------
+# Telemetry Configuration (SOTA)
+# -----------------------------------------------------------------------------
+# Event logging for debugging and online learning.
+telemetry:
+  enabled: true
+  db_path: "./data/telemetry.db"
+  
+  # Log raw query text (privacy-sensitive, off by default)
+  log_query_text: false
+  
+  # Delete events older than this (hours)
+  cleanup_hours: 168  # 1 week
+
+  # Reward calculation parameters
+  latency_scale: 0.001
+  latency_cap: 0.3
+  context_scale: 0.0001
+  context_cap: 0.2
+
+# -----------------------------------------------------------------------------
+# Bandit Configuration (SOTA)
+# -----------------------------------------------------------------------------
+# Contextual bandit for learned tool scoring.
+bandit:
+  enabled: true
+  db_path: "./data/bandit_weights.db"
+  feature_dim: 7
+  learning_rate: 0.01
+  l2_regularization: 0.001
+  persist_every_n_updates: 10
+
+# -----------------------------------------------------------------------------
+# Bias Learning Configuration (SOTA)
+# -----------------------------------------------------------------------------
+# Per-tool bias adjustments from feedback.
+bias_learning:
+  enabled: true
+  db_path: "./data/tool_biases.db"
+  learning_rate: 0.05
+  decay_rate: 0.001
+  max_bias: 0.5
+  enable_delta_vectors: false
 
 # -----------------------------------------------------------------------------
 # Session Configuration (Memory/State)

@@ -1,11 +1,12 @@
 """
-UCP Debug Dashboard.
+UCP Debug Dashboard - Extended with SOTA Metrics.
 
 A Streamlit-based visualization for debugging UCP:
 - Current session state
 - Active tools and routing decisions
 - Tool usage statistics
 - Search interface for the Tool Zoo
+- SOTA pipeline metrics: bandit stats, bias learning, telemetry
 
 Run with: streamlit run src/ucp/dashboard.py
 """
@@ -13,11 +14,14 @@ Run with: streamlit run src/ucp/dashboard.py
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 try:
     import streamlit as st
     import pandas as pd
+    import numpy as np
     STREAMLIT_AVAILABLE = True
 except ImportError:
     STREAMLIT_AVAILABLE = False
@@ -25,7 +29,7 @@ except ImportError:
 from ucp.config import UCPConfig
 from ucp.tool_zoo import HybridToolZoo
 from ucp.session import SessionManager
-from ucp.router import AdaptiveRouter
+from ucp.router import AdaptiveRouter, SOTARouter, create_router
 
 
 def load_components(config_path: str | None = None):
@@ -37,15 +41,181 @@ def load_components(config_path: str | None = None):
 
     session_manager = SessionManager(config.session)
 
-    router = AdaptiveRouter(config.router, tool_zoo)
+    # Load telemetry store if enabled
+    telemetry_store = None
+    if config.telemetry.enabled:
+        from ucp.telemetry import SQLiteTelemetryStore
+        if Path(config.telemetry.db_path).exists():
+            telemetry_store = SQLiteTelemetryStore(config.telemetry.db_path)
 
-    return config, tool_zoo, session_manager, router
+    router = create_router(config.router, tool_zoo, telemetry_store)
+
+    return config, tool_zoo, session_manager, router, telemetry_store
+
+
+def render_sota_tab(router: Any, telemetry_store: Any) -> None:
+    """Render the SOTA pipeline metrics tab."""
+    st.header("🚀 SOTA Pipeline Metrics")
+    
+    if not isinstance(router, SOTARouter):
+        st.info("SOTA mode not enabled. Set router.strategy: sota in config.")
+        return
+    
+    # Get SOTA stats
+    stats = router.get_sota_stats()
+    
+    # Bandit Statistics
+    st.subheader("🎰 Bandit Scorer")
+    if "bandit" in stats:
+        bandit = stats["bandit"]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Updates", bandit.get("update_count", 0))
+        with col2:
+            st.metric("Feature Dim", bandit.get("feature_dim", 0))
+        with col3:
+            st.metric("Exploration", bandit.get("exploration_type", "N/A"))
+        
+        st.markdown(f"**Weight Mean:** {bandit.get('weight_mean', 0):.4f}")
+        st.markdown(f"**Weight Std:** {bandit.get('weight_std', 0):.4f}")
+        st.markdown(f"**Bias:** {bandit.get('bias', 0):.4f}")
+    else:
+        st.info("Bandit scorer not initialized")
+    
+    st.divider()
+    
+    # Bias Learning Statistics
+    st.subheader("📈 Per-Tool Bias Learning")
+    if "bias" in stats:
+        bias = stats["bias"]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Tools Tracked", bias.get("tool_count", 0))
+        with col2:
+            st.metric("Total Updates", bias.get("total_updates", 0))
+        with col3:
+            st.metric("Mean Bias", f"{bias.get('mean_bias', 0):.3f}")
+        
+        # Show top biased tools
+        if router.bias_store:
+            st.markdown("**Top Positive Biases:**")
+            top_pos = router.bias_store.get_top_biased_tools(5, positive=True)
+            if top_pos:
+                for tool, b in top_pos:
+                    st.markdown(f"  • `{tool}`: {b:+.3f}")
+            
+            st.markdown("**Top Negative Biases:**")
+            top_neg = router.bias_store.get_top_biased_tools(5, positive=False)
+            if top_neg:
+                for tool, b in top_neg:
+                    st.markdown(f"  • `{tool}`: {b:+.3f}")
+    else:
+        st.info("Bias learning not initialized")
+    
+    st.divider()
+    
+    # Telemetry Statistics
+    st.subheader("📊 Telemetry Summary")
+    if "telemetry" in stats:
+        telem = stats["telemetry"]
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Routing Events", telem.get("routing_events", 0))
+            st.metric("Tool Calls", telem.get("tool_calls", 0))
+        with col2:
+            st.metric("Success Rate", f"{telem.get('overall_success_rate', 0):.1%}")
+            st.metric("Exploration Rate", f"{telem.get('exploration_rate', 0):.1%}")
+        
+        st.metric("Avg Tools Selected", f"{telem.get('avg_tools_selected', 0):.1f}")
+        st.metric("Avg Selection Time (ms)", f"{telem.get('avg_selection_time_ms', 0):.1f}")
+    else:
+        st.info("Telemetry not available")
+
+
+def render_telemetry_details(telemetry_store: Any) -> None:
+    """Render detailed telemetry analysis."""
+    st.header("📈 Telemetry Analysis")
+    
+    if not telemetry_store:
+        st.info("Telemetry store not available")
+        return
+    
+    # Recent routing events
+    st.subheader("Recent Routing Events")
+    events = telemetry_store.get_routing_events(limit=20)
+    
+    if events:
+        event_data = []
+        for e in events:
+            event_data.append({
+                "Timestamp": e.timestamp.strftime("%H:%M:%S"),
+                "Strategy": e.strategy,
+                "Candidates": e.total_candidates,
+                "Selected": len(e.selected_tools),
+                "Tokens": e.context_tokens_used,
+                "Time (ms)": f"{e.selection_time_ms:.1f}",
+                "Explored": "✓" if e.exploration_triggered else "",
+            })
+        st.dataframe(pd.DataFrame(event_data), use_container_width=True)
+    else:
+        st.info("No routing events recorded")
+    
+    st.divider()
+    
+    # Tool success heatmap
+    st.subheader("Tool Success Rates")
+    all_stats = telemetry_store.get_tool_stats()
+    
+    if all_stats:
+        heatmap_data = []
+        for tool_name, stats in all_stats.items():
+            heatmap_data.append({
+                "Tool": tool_name[:30],  # Truncate
+                "Calls": stats.get("total_calls", 0),
+                "Success Rate": stats.get("rolling_success_rate", 0.5),
+                "Avg Latency (ms)": stats.get("avg_latency_ms", 0),
+                "Avg Reward": stats.get("avg_reward", 0),
+            })
+        
+        df = pd.DataFrame(heatmap_data)
+        if not df.empty:
+            # Sort by calls
+            df = df.sort_values("Calls", ascending=False).head(20)
+            
+            # Create bar chart for success rates
+            st.bar_chart(df.set_index("Tool")["Success Rate"])
+            
+            # Full table
+            st.dataframe(df, use_container_width=True)
+    else:
+        st.info("No tool statistics available")
+    
+    st.divider()
+    
+    # Recent rewards
+    st.subheader("Recent Reward Signals")
+    rewards = telemetry_store.get_recent_rewards(limit=20)
+    
+    if rewards:
+        reward_data = []
+        for r in rewards:
+            reward_data.append({
+                "Timestamp": r.timestamp.strftime("%H:%M:%S"),
+                "Tool": r.tool_name[:30],
+                "Success": f"{r.success_reward:+.1f}",
+                "Latency": f"{r.latency_penalty:+.2f}",
+                "Context": f"{r.context_cost_penalty:+.2f}",
+                "Total": f"{r.total_reward:+.2f}",
+            })
+        st.dataframe(pd.DataFrame(reward_data), use_container_width=True)
+    else:
+        st.info("No reward signals recorded")
 
 
 def main():
     """Main dashboard entry point."""
     if not STREAMLIT_AVAILABLE:
-        print("Streamlit not installed. Run: pip install streamlit")
+        print("Streamlit not installed. Run: pip install streamlit pandas")
         return
 
     st.set_page_config(
@@ -55,7 +225,7 @@ def main():
     )
 
     st.title("🔧 Universal Context Protocol Dashboard")
-    st.markdown("Debug and visualize UCP routing decisions")
+    st.markdown("Debug and visualize UCP routing decisions - **SOTA Edition**")
 
     # Sidebar for configuration
     with st.sidebar:
@@ -72,20 +242,26 @@ def main():
 
     # Load components
     try:
-        config, tool_zoo, session_manager, router = load_components(
+        config, tool_zoo, session_manager, router, telemetry_store = load_components(
             config_path if Path(config_path).exists() else None
         )
     except Exception as e:
         st.error(f"Failed to load configuration: {e}")
         st.info("Using default configuration")
-        config, tool_zoo, session_manager, router = load_components(None)
+        config, tool_zoo, session_manager, router, telemetry_store = load_components(None)
+
+    # Display strategy mode
+    strategy = getattr(config.router, 'strategy', 'baseline')
+    st.markdown(f"**Strategy Mode:** `{strategy.upper()}`")
 
     # Main tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 Tool Search",
         "📊 Tool Zoo Stats",
         "💬 Session Explorer",
-        "📈 Router Learning"
+        "📈 Router Learning",
+        "🚀 SOTA Metrics",
+        "📉 Telemetry Details",
     ])
 
     # Tab 1: Tool Search
@@ -305,11 +481,20 @@ def main():
         else:
             st.info("Adaptive learning requires AdaptiveRouter")
 
+    # Tab 5: SOTA Metrics
+    with tab5:
+        render_sota_tab(router, telemetry_store)
+
+    # Tab 6: Telemetry Details
+    with tab6:
+        render_telemetry_details(telemetry_store)
+
     # Footer
     st.markdown("---")
     st.markdown(
-        "UCP Dashboard | "
+        f"UCP Dashboard | "
         f"Config: `{config_path}` | "
+        f"Strategy: `{strategy}` | "
         f"Tools: {tool_zoo.get_stats()['total_tools']}"
     )
 

@@ -9,11 +9,17 @@ two-stage dispatch pattern from the design docs:
 2. Stage 2: Re-ranking and filtering to select the minimal set
 
 This is the Gorilla/RAFT-inspired component that solves Tool Overload.
+
+Extended with SOTA pipeline for:
+- Cross-encoder reranking
+- Bandit-based selection
+- Online learning from feedback
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import time
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -21,6 +27,10 @@ from ucp.config import RouterConfig
 from ucp.models import RoutingDecision, SessionState, ToolSchema
 
 if TYPE_CHECKING:
+    from ucp.bandit import SharedBanditScorer
+    from ucp.online_opt import ToolBiasStore
+    from ucp.routing_pipeline import RoutingPipeline, SelectionResult
+    from ucp.telemetry import SQLiteTelemetryStore
     from ucp.tool_zoo import HybridToolZoo, ToolZoo
 
 logger = structlog.get_logger(__name__)
@@ -360,3 +370,248 @@ class AdaptiveRouter(Router):
                 })
 
         return training_data
+
+
+class SOTARouter(AdaptiveRouter):
+    """
+    SOTA Router with full pipeline integration.
+    
+    Extends AdaptiveRouter with:
+    - RoutingPipeline for retrieve-rerank-select
+    - SharedBanditScorer for learned selection
+    - ToolBiasStore for per-tool adjustments
+    - SQLiteTelemetryStore for event logging
+    """
+    
+    def __init__(
+        self,
+        config: RouterConfig,
+        tool_zoo: ToolZoo,
+        bandit_scorer: SharedBanditScorer | None = None,
+        bias_store: ToolBiasStore | None = None,
+        telemetry_store: SQLiteTelemetryStore | None = None,
+    ) -> None:
+        super().__init__(config, tool_zoo)
+        
+        # SOTA components
+        self.bandit_scorer = bandit_scorer
+        self.bias_store = bias_store
+        self.telemetry_store = telemetry_store
+        
+        # Lazy-initialize pipeline
+        self._pipeline: RoutingPipeline | None = None
+        
+        # Track last routing for feedback
+        self._last_routing_event_id: Any = None
+    
+    def _get_pipeline(self) -> RoutingPipeline:
+        """Lazy-init the routing pipeline."""
+        if self._pipeline is None:
+            from ucp.routing_pipeline import RoutingPipeline, SlateConfig
+            
+            slate_config = SlateConfig(
+                max_tools=self.config.max_tools,
+                min_tools=self.config.min_tools,
+                max_context_tokens=getattr(self.config, 'max_context_tokens', 8000),
+                max_per_server=getattr(self.config, 'max_per_server', 3),
+            )
+            
+            self._pipeline = RoutingPipeline(
+                tool_zoo=self.tool_zoo,  # type: ignore
+                config=self.config,
+                slate_config=slate_config,
+                use_cross_encoder=getattr(self.config, 'use_cross_encoder', False),
+                bandit_scorer=self.bandit_scorer,
+                bias_store=self.bias_store,
+                exploration_rate=getattr(self.config, 'exploration_rate', 0.1),
+                candidate_pool_size=getattr(self.config, 'candidate_pool_size', 50),
+            )
+        
+        return self._pipeline
+    
+    async def route(
+        self,
+        session: SessionState,
+        current_message: str | None = None,
+    ) -> RoutingDecision:
+        """
+        Route using the SOTA pipeline.
+        
+        Falls back to baseline routing if no pipeline is available.
+        """
+        # Check if we should use SOTA or baseline
+        if getattr(self.config, 'strategy', 'baseline') != 'sota':
+            return await super().route(session, current_message)
+        
+        # Build query
+        context_parts = []
+        context_parts.append(session.get_context_for_routing(n_messages=5))
+        if current_message:
+            context_parts.append(f"user: {current_message}")
+        query = "\n".join(filter(None, context_parts))
+        
+        if not query.strip():
+            return RoutingDecision(
+                selected_tools=self.config.fallback_tools[:],
+                scores={},
+                reasoning="No context available, using fallback tools",
+                query_used="",
+            )
+        
+        # Run SOTA pipeline
+        pipeline = self._get_pipeline()
+        result = pipeline.run(
+            query=query,
+            session=session,
+            cooccurrence_data=self._tool_cooccurrence,
+            telemetry_store=self.telemetry_store,
+            log_query_text=False,  # Privacy default
+        )
+        
+        # Convert to RoutingDecision
+        selected_tools = [c.tool.name for c in result.selected]
+        scores = {c.tool.name: c.final_score for c in result.selected}
+        
+        # Ensure minimum tools
+        if len(selected_tools) < self.config.min_tools:
+            for fallback in self.config.fallback_tools:
+                if fallback not in selected_tools:
+                    selected_tools.append(fallback)
+                    scores[fallback] = 0.1
+                if len(selected_tools) >= self.config.min_tools:
+                    break
+        
+        # Build reasoning
+        reasoning_parts = [
+            f"Strategy: SOTA",
+            f"Candidates: {len(result.all_candidates)}",
+            f"Selected: {len(selected_tools)}",
+            f"Tokens: {result.total_tokens}",
+            f"Time: {result.selection_time_ms:.1f}ms",
+        ]
+        if result.exploration_triggered:
+            reasoning_parts.append("Exploration: triggered")
+        
+        decision = RoutingDecision(
+            selected_tools=selected_tools,
+            scores=scores,
+            reasoning=" | ".join(reasoning_parts),
+            query_used=query[:500],
+        )
+        
+        logger.info(
+            "sota_routing_decision",
+            selected_count=len(selected_tools),
+            top_tool=selected_tools[0] if selected_tools else None,
+            strategy="sota",
+            exploration=result.exploration_triggered,
+        )
+        
+        return decision
+    
+    def record_outcome(
+        self,
+        tool_name: str,
+        success: bool,
+        execution_time_ms: float = 0.0,
+        schema_tokens: int = 0,
+    ) -> None:
+        """
+        Record a tool call outcome for online learning.
+        
+        This updates both the bandit scorer and bias store.
+        """
+        from ucp.telemetry import RewardCalculator
+        
+        # Calculate reward
+        calculator = RewardCalculator()
+        reward = calculator.calculate(
+            success=success,
+            execution_time_ms=execution_time_ms,
+            schema_tokens=schema_tokens,
+        )
+        
+        # Log to telemetry
+        if self.telemetry_store:
+            self.telemetry_store.log_reward(reward)
+        
+        # Update bandit
+        if self.bandit_scorer:
+            from ucp.bandit import FeatureExtractor
+            
+            # We need the original features - approximate from tool stats
+            stats = self.telemetry_store.get_tool_stats(tool_name) if self.telemetry_store else {}
+            features = FeatureExtractor().extract(
+                success_rate=stats.get('rolling_success_rate', 0.5),
+                latency_ms=stats.get('avg_latency_ms', 0.0),
+            )
+            self.bandit_scorer.update(features, reward.total_reward)
+        
+        # Update bias
+        if self.bias_store:
+            self.bias_store.update(tool_name, reward.total_reward)
+        
+        logger.debug(
+            "outcome_recorded",
+            tool=tool_name,
+            success=success,
+            reward=reward.total_reward,
+        )
+    
+    def get_sota_stats(self) -> dict[str, Any]:
+        """Get statistics from SOTA components."""
+        stats = self.get_learning_stats()
+        
+        if self.bandit_scorer:
+            stats["bandit"] = self.bandit_scorer.get_stats()
+        
+        if self.bias_store:
+            stats["bias"] = self.bias_store.get_stats()
+        
+        if self.telemetry_store:
+            stats["telemetry"] = self.telemetry_store.get_metrics_summary()
+        
+        return stats
+
+
+def create_router(
+    config: RouterConfig,
+    tool_zoo: ToolZoo,
+    telemetry_store: SQLiteTelemetryStore | None = None,
+) -> Router:
+    """
+    Factory function to create the appropriate router based on config.
+    
+    Args:
+        config: Router configuration
+        tool_zoo: Tool zoo for retrieval
+        telemetry_store: Optional telemetry store for SOTA mode
+    
+    Returns:
+        Router instance (baseline, adaptive, or SOTA)
+    """
+    strategy = getattr(config, 'strategy', 'baseline')
+    
+    if strategy == 'sota':
+        # Initialize SOTA components
+        from ucp.bandit import SharedBanditScorer, BanditConfig as BanditCfg
+        from ucp.online_opt import ToolBiasStore, BiasConfig
+        
+        bandit_scorer = SharedBanditScorer(BanditCfg(
+            exploration_type=getattr(config, 'exploration_type', 'epsilon'),
+            epsilon=getattr(config, 'exploration_rate', 0.1),
+        ))
+        
+        bias_store = ToolBiasStore(BiasConfig())
+        
+        return SOTARouter(
+            config=config,
+            tool_zoo=tool_zoo,
+            bandit_scorer=bandit_scorer,
+            bias_store=bias_store,
+            telemetry_store=telemetry_store,
+        )
+    else:
+        # Use adaptive router for baseline (still tracks co-occurrence)
+        return AdaptiveRouter(config, tool_zoo)
+

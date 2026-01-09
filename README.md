@@ -50,6 +50,40 @@ python clients/harness/run_eval.py
 
 See [docs/evaluation_harness.md](docs/evaluation_harness.md) for details on interpreting results.
 
+## 🚀 Development Status & Roadmap
+
+**Current Status:** ~65% complete, Alpha stage  
+**Target:** v1.0 production release in 16 weeks
+
+### 📋 Planning Documents
+
+We've created a comprehensive development plan based on proven methodologies from Gorilla, LangGraph, and LlamaIndex:
+
+- **[START_HERE.md](START_HERE.md)** - Executive summary and immediate next steps
+- **[DEV_PLAN_TO_COMPLETION.md](DEV_PLAN_TO_COMPLETION.md)** - Full 16-week roadmap with 39 milestones
+- **[ROADMAP_VISUAL.md](ROADMAP_VISUAL.md)** - Visual timeline and critical path
+- **[PRIORITIZATION_MATRIX.md](PRIORITIZATION_MATRIX.md)** - Decision framework for feature prioritization
+- **[.agent/workflows/start-phase1.md](.agent/workflows/start-phase1.md)** - Week 1 step-by-step guide
+
+### 🎯 Next Milestones
+
+**Phase 1 (Weeks 1-4): Stabilize Core**
+- Fix failing tests
+- Validate with real MCP servers (GitHub, filesystem)
+- Ship alpha to PyPI + Docker
+
+**Phase 2 (Weeks 5-10): Ship Clients**
+- VS Code extension (critical path)
+- CLI client
+- Desktop app
+
+**Phase 3 (Weeks 11-16): Advanced Features**
+- RAFT fine-tuning pipeline
+- Production hardening
+- Community launch
+
+See [ROADMAP_VISUAL.md](ROADMAP_VISUAL.md) for the full timeline.
+
 ## Quick Start
 
 ### Installation
