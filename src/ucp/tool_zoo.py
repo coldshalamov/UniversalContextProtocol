@@ -11,6 +11,7 @@ Implements the LlamaIndex pattern from the design docs.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,9 @@ class ToolZoo:
             metadata={"description": "UCP Tool Schema Index"},
         )
 
+        # Load existing tools into cache
+        self._load_existing_tools()
+
         self._initialized = True
         logger.info(
             "tool_zoo_initialized",
@@ -76,6 +80,19 @@ class ToolZoo:
             collection=self.config.collection_name,
             existing_tools=self._collection.count(),
         )
+
+    def _load_existing_tools(self) -> None:
+        """Load all tools from the collection into the memory cache."""
+        results = self._collection.get(include=["metadatas"])
+        if results["metadatas"]:
+            for metadata in results["metadatas"]:
+                if metadata and "full_schema" in metadata:
+                    try:
+                        schema_dict = json.loads(metadata["full_schema"])
+                        tool = ToolSchema(**schema_dict)
+                        self._tools_by_name[tool.name] = tool
+                    except Exception as e:
+                        logger.error("failed_to_load_tool", error=str(e), metadata=metadata)
 
     def _generate_tool_id(self, tool: ToolSchema) -> str:
         """Generate a stable ID for a tool."""
@@ -118,6 +135,7 @@ class ToolZoo:
                 "server_name": tool.server_name,
                 "domain": tool.domain or "",
                 "tags": ",".join(tool.tags),
+                "full_schema": tool.model_dump_json(),
             })
 
             # Store in memory cache
@@ -300,17 +318,28 @@ class HybridToolZoo(ToolZoo):
         super().__init__(config)
         self._keyword_index: dict[str, set[str]] = {}  # word -> tool_names
 
+    def initialize(self) -> None:
+        """Initialize and build keyword index from loaded tools."""
+        super().initialize()
+        # Build keyword index from loaded tools
+        for tool in self._tools_by_name.values():
+            self._index_keywords(tool)
+
+    def _index_keywords(self, tool: ToolSchema) -> None:
+        """Index keywords for a single tool."""
+        words = self._tokenize(tool.full_description)
+        for word in words:
+            if word not in self._keyword_index:
+                self._keyword_index[word] = set()
+            self._keyword_index[word].add(tool.name)
+
     def add_tools(self, tools: list[ToolSchema]) -> int:
         """Add tools and build keyword index."""
         count = super().add_tools(tools)
 
         # Build keyword index
         for tool in tools:
-            words = self._tokenize(tool.full_description)
-            for word in words:
-                if word not in self._keyword_index:
-                    self._keyword_index[word] = set()
-                self._keyword_index[word].add(tool.name)
+            self._index_keywords(tool)
 
         return count
 

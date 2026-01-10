@@ -1,0 +1,24 @@
+server:
+  name: "UCP Test"
+  transport: stdio
+
+tool_zoo:
+  embedding_model: "all-MiniLM-L6-v2"
+  top_k: 5
+  persist_directory: "./test_data/chromadb"
+
+router:
+  mode: hybrid
+  max_tools: 10
+  fallback_tools: ["filesystem.list_directory", "filesystem.read_text_file"]
+
+session:
+  persistence: sqlite
+  db_path: "./test_data/sessions.db"
+
+downstream_servers:
+  - name: filesystem
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/User/.gemini/tmp"]
+    tags: [files, io]

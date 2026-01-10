@@ -1,0 +1,19 @@
+﻿{
+    "mcpServers":  {
+                       "ucp":  {
+                                   "args":  [
+                                                "serve",
+                                                "-c",
+                                                "C:\\Users\\User\\Documents\\GitHub\\Telomere\\UniversalContextProtocol\\ucp_config_test.yaml"
+                                            ],
+                                   "command":  "C:\\Users\\User\\Documents\\GitHub\\Telomere\\UniversalContextProtocol\\.venv\\Scripts\\ucp.exe"
+                               },
+                       "swarm-senses":  {
+                                            "args":  [
+                                                         "--config",
+                                                         "C:/Users/User/.claude/mcp-servers/lazy-mcp/senses_config.json"
+                                                     ],
+                                            "command":  "C:/Users/User/.claude/mcp-servers/lazy-mcp/build/mcp-proxy.exe"
+                                        }
+                   }
+}
