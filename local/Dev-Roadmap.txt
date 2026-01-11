@@ -1,0 +1,254 @@
+### Concise workflow invariant
+
+Agents MUST build UCP-P using a **spec-first, test-gated loop** where every change is justified against the **core invariants (minimal context, minimal resources, least privilege, untrusted tool metadata, shaped outputs, local-first learning, vendor-agnostic adapters)** and is only allowed to land if it improves (or at least does not regress) **measured budgets** for tokens, latency, memory, and safety.
+
+---
+
+## UCP-P Spec-Driven Workflow Invariant (agents must follow this, always)
+
+### 0) The Constitution (non-negotiable constraints)
+
+Every design/PR/commit MUST explicitly state how it respects these:
+
+1. **Minimal Context**: never inject tools/skills unless they pass relevance threshold + token budget.
+2. **Minimal Resources**: never keep MCP servers running unless needed; on-demand + TTL shutdown.
+3. **Least Privilege**: all tools are scoped capabilities; risky ops require approval/policy.
+4. **Tool Metadata Untrusted**: pin tool definitions; detect changes; treat as re-approval.
+5. **Result Shaping**: never feed large outputs raw; summarize + store + handle/link.
+6. **Local-First Learning**: logs/profiles stored and computed locally by default.
+7. **Vendor-Agnostic Core**: MCP-like internal truth; adapters compile to model/provider formats.
+
+If a change can’t be shown to preserve these, it is rejected.
+
+---
+
+## 1) The Agent Work Loop (the only allowed development cycle)
+
+### Step 1 — Write/Update a “Turn-Level Spec” before code
+
+For every feature, bugfix, or refactor, the agent MUST produce a spec fragment containing:
+
+* **Problem statement** (1 paragraph)
+* **Affected invariants** (which of the 7 it touches)
+* **Behavioral contract** (input → expected behavior → output)
+* **Budget contract** (hard numbers; see Section 2)
+* **Threat/abuse cases** (at least 2)
+* **Acceptance tests** (what must pass; see Section 3)
+
+No spec fragment = no implementation.
+
+### Step 2 — Implement the smallest slice that satisfies the contract
+
+Agents MUST:
+
+* implement only what is required by the spec fragment
+* avoid “nice-to-haves” unless they are separately spec’d
+* keep the runtime footprint minimal (prefer reuse over new daemons)
+
+### Step 3 — Prove it: tests + measurements MUST pass
+
+Agents MUST run:
+
+* **Conformance tests** (protocol + adapter)
+* **Safety tests** (policy enforcement + tool poisoning defenses)
+* **Budget tests** (token overhead, memory, latency)
+* **Regression tests** (golden traces)
+
+If any fails, the change does not ship.
+
+### Step 4 — Log the learning signals (local-only)
+
+If the change affects planning/selection/personalization, the agent MUST add/adjust:
+
+* logging schema
+* metrics update rules (bandit/EMA)
+* a “no-cloud-by-default” guardrail
+
+### Step 5 — Update the “Operator Surface”
+
+Every shipped behavior change MUST update:
+
+* user-facing policy controls (if it affects permissions)
+* audit log semantics (what gets recorded)
+* documentation of capability packs and budgets
+
+---
+
+## 2) The Budget Contract (hard gates; must be measured)
+
+Each PR MUST declare its expected impact and prove it with measurements:
+
+### Context budget
+
+* **Tool schema tokens injected per turn**: must be ≤ configured cap (default small)
+* **Total injected tokens per turn**: must not regress > X% (default: 5%) without justification
+* **Duplicate payload reinjection**: target = near zero (measured as repeat bytes/tokens)
+
+### Resource budget
+
+* **Idle footprint**: memory + CPU must remain under caps (define per OS)
+* **Server concurrency**: only what’s needed; enforce TTL shutdown
+* **Spawn latency**: p95 under target (define target)
+
+### Safety budget
+
+* **Forbidden actions denied**: 100% under policy
+* **Tool definition change detection**: must trigger re-approval
+* **No accidental network exposure**: local services must default to loopback only
+
+A PR that improves features but breaks budgets is rejected.
+
+---
+
+## 3) Required Test Suites (no exceptions)
+
+### A) Protocol & adapter conformance
+
+* MCP tool discovery + call flow behaves correctly (list/call semantics)
+* Provider adapters compile tool schemas correctly (OpenAI/Anthropic/local)
+* Tool-call interception works under streaming and non-streaming modes
+
+### B) Planner correctness
+
+* Given a conversation trace, planner selects:
+
+  * the same or better tool set vs baseline
+  * within token budget
+* Progressive disclosure triggers when tool library is large or budget exceeded
+
+### C) Result shaping correctness
+
+* Large outputs are:
+
+  * summarized
+  * stored as blobs
+  * referenced by handle/link
+  * not reinjected raw
+
+### D) Security/abuse tests (must include adversarial cases)
+
+* Tool poisoning attempt via tool descriptions is neutralized (metadata treated as untrusted)
+* Rug pull: tool schema changes mid-session triggers re-approval / pin violation handling
+* Policy denies disallowed file paths, domains, or “exec-like” calls
+
+### E) Budget regression tests
+
+* Golden conversation traces with fixed budgets:
+
+  * token overhead doesn’t regress beyond threshold
+  * server lifecycle matches expected behavior (spawn/kill)
+  * latency distributions stay within tolerance
+
+---
+
+## 4) Mandatory Artifacts (agents must keep these current)
+
+### 4.1 UCP-P “Spec Registry”
+
+A directory of small, composable specs, each owning one behavior:
+
+* Proxy interception + streaming behavior
+* Capability pack compilation rules
+* Planner scoring and selection rules
+* MCP server lifecycle (spawn/TTL/kill)
+* Result shaping rules (summary/store/handle)
+* Policy engine rules (scopes/approvals)
+* Adapter mappings per provider
+* Learning updates and storage format
+
+Agents must update the relevant spec(s) each time they change behavior.
+
+### 4.2 Golden Trace Library
+
+A set of representative transcripts + expected outcomes:
+
+* “read local file”
+* “web lookup”
+* “multi-step with 2 tools”
+* “huge output shaping”
+* “adversarial tool poisoning”
+* “budget stress test”
+
+Traces are how you prevent silent regressions.
+
+### 4.3 Threat Model Notebook
+
+Small living document:
+
+* assets (files, tokens, credentials)
+* attacker paths (tool poisoning, server exposure, prompt injection)
+* mitigations (pinning, sandbox, approvals)
+
+Every security-affecting change must update it.
+
+---
+
+## 5) Milestone Plan (agents build in this order, always)
+
+### Milestone 1 — MVP kernel (must exist before learning)
+
+* Local LLM API proxy with streaming
+* Basic planner (rules + cheap retrieval)
+* MCP tool execution with on-demand server spawn + TTL
+* Result shaping + blob store + handles
+* Policy engine for scope enforcement + approvals
+
+### Milestone 2 — Progressive disclosure mode
+
+* Meta-tools: search/enable/fetch_blob
+* Automatic fallback when tool library is large
+
+### Milestone 3 — Vendor adapters hardening
+
+* Provider-specific tool schema compiler
+* Compatibility test matrix per model/provider
+
+### Milestone 4 — Learning engine (local-first)
+
+* Tool efficacy updates
+* User style preference shaping
+* Model profile heuristics
+
+### Milestone 5 — Code mode (optional, gated)
+
+* Sandboxed exec tool
+* On-demand tool stub loading
+* Strict security posture
+
+No skipping ahead. Every milestone expands ability without violating the constitution.
+
+---
+
+## 6) PR/Change Checklist (agents must include this in every PR)
+
+* [ ] Spec fragment added/updated
+* [ ] Invariants affected listed + compliance explained
+* [ ] Budgets declared + measured results attached
+* [ ] Tests added/updated (including at least one negative/adversarial test if relevant)
+* [ ] Golden trace added/updated if behavior changed
+* [ ] Policy/audit logging impact documented
+* [ ] Tool pinning / metadata trust rules preserved
+* [ ] Server lifecycle verified (spawn/TTL/kill)
+
+---
+
+## Three views (for agent alignment)
+
+**(1) Hunch:** Treat this like building a tiny OS kernel for AI: capabilities in, capabilities out, everything measured, nothing implicit.
+
+**(2) Analytic:** This workflow forces correctness by making every behavior: (spec → measurable budgets → tests → trace proofs). It prevents the two classic failures: “tool soup in context” and “daemon sprawl on the machine.”
+
+**(3) Integrated:** The constitution constrains the system; the work loop constrains development. Together they make “maximal ability” scale without turning into “maximal chaos.”
+
+---
+
+## Self-critique + refinement
+
+Potential weak spot: budgets need real numeric defaults (token cap, TTL, p95 latency) and those depend on your target environment. Refinement: set conservative defaults in the global spec and allow per-user overrides, but **never allow overrides that disable auditability and safety gates entirely**.
+
+---
+
+## Confidence & limitations
+
+**Confidence: 87%** that this workflow invariant is sufficient to drive agents to build the program without drifting into bloat or unsafe tool sprawl.
+**Limitation:** numeric budget thresholds and the provider adapter matrix will need to be concretely set early (MVP) to avoid “it passes on my machine” ambiguity.

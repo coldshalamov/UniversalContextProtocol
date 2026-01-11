@@ -1,0 +1,693 @@
+### Concise spec (the “what”)
+
+Build a **local “context kernel”** that sits between user ↔ model as an API proxy, continuously **predicts the minimal set of tools/skills needed**, and **injects only those schemas + instructions** for that turn. It then **executes tool calls through MCP** (starting MCP servers on-demand) and **feeds back shaped results** (summaries, resource links, structured outputs) to avoid context bloat. Over time it learns **(a)** which tools actually help for this user and **(b)** how this user likes information presented, while adapting to **model constraints** (tool-calling quirks, context window, JSON-schema limits). Security-wise it runs as a **capability-based system**: least privilege, per-tool approvals for risky actions, sandboxing for local servers, and defenses against tool-metadata poisoning / rug-pulls.
+
+---
+
+## What I know / what I verified vs. what I’m assuming
+
+**Verified (looked up):**
+
+* MCP is a client–server protocol using **JSON-RPC 2.0**, with a **Host ↔ Client ↔ Server** architecture; servers expose **Tools, Resources, Prompts**; transports include **stdio** and **Streamable HTTP**. ([Model Context Protocol][1])
+* MCP Tools are discoverable via `tools/list` and invoked via `tools/call`, with JSON Schema `inputSchema`, and can return **structuredContent** plus content blocks; tools can also return **resource_link** items. ([Model Context Protocol][2])
+* MCP Prompts are intended to be **user-controlled** (explicitly selected), while tools are model-controlled and resources are application-driven. ([Model Context Protocol][3])
+* The MCP spec has evolved to include things like **structured tool output**, **resource links**, and stronger OAuth guidance/security considerations (including forbidden “token passthrough”). ([Model Context Protocol][4])
+* There are real, documented risks around **indirect prompt injection / tool poisoning** via tool descriptions and “rug pull” scenarios (tool metadata changing after approval). ([Microsoft Developer][5])
+* There are also real-world findings of MCP servers being misconfigured (e.g., binding to `0.0.0.0`, unsafe command execution), reinforcing why sandboxing + local-only exposure matters. ([Backslash][6])
+* Anthropic has publicly described a **code-execution approach** to MCP that massively reduces token overhead by progressively loading only what’s needed (their example cites ~150k → ~2k tokens overhead reduction). ([Anthropic][7])
+* OpenAI’s Agents SDK documents MCP usage patterns including **tool filtering** and optional approval flows, and supports stdio + Streamable HTTP + hosted MCP patterns. ([OpenAI GitHub][8])
+
+**Assumptions (because you didn’t pin these down):**
+
+* Target OS(s): I’ll assume **cross-platform** (macOS/Windows/Linux) and design the sandbox + process model to degrade gracefully where OS-level sandboxing is limited.
+* Primary integration: I’ll assume you want **a local proxy server** that can emulate common LLM APIs (OpenAI-style, Anthropic-style), plus optional editor/plugin hooks.
+* You want **“no oversight” for tool provisioning**, but **still a safety gate** for destructive operations (delete files, send emails, money movement, etc.). Otherwise you’re building a local autopilot with scissors taped to it.
+
+---
+
+## Three views (hunch → analytic → integrated)
+
+### (1) Intuitive / hunch view
+
+Treat tools like **dynamically-linked libraries** and the model’s context window like **L1 cache**: you never load the whole operating system into cache—only the pages you’re about to touch. Your orchestrator is the **dynamic loader + capability security kernel** for LLMs.
+
+### (2) Analytic view
+
+This is a systems problem with four loops:
+
+1. **Ingress loop**: intercept user ↔ model traffic.
+2. **Planning loop**: predict minimal capabilities (tools/skills/resources) under budget + policy.
+3. **Execution loop**: run MCP tools, shape results, feed model.
+4. **Learning loop**: update tool relevance + user style + model-specific heuristics.
+
+### (3) Integrated view
+
+Build a **local, vendor-agnostic “Capability Router”**:
+
+* Always-on lightweight proxy + planner.
+* On-demand MCP server lifecycle manager.
+* A “capability pack” compiler that emits the smallest possible tool schema / skill hints for the current model.
+* A result shaper that converts big outputs into **resource links + structured summaries**.
+* A learning engine that improves selection and formatting over time, without bloating the model context.
+
+---
+
+# Universal Context Protocol Proxy (UCP-P) — Invariant Spec
+
+I’ll write this like an internal “constitution” for the project: **non-negotiable invariants**, then **architecture**, then **algorithms**, then **security**, then **evaluation**.
+
+## 0) Definitions (canonical language)
+
+* **Host**: the application that holds the LLM conversation loop (in our case, UCP-P). ([Model Context Protocol][1])
+* **MCP Client**: connects Host to MCP Servers. ([Model Context Protocol][1])
+* **MCP Server**: exposes **Tools/Resources/Prompts** via MCP. ([Model Context Protocol][1])
+* **Tool**: model-invoked operation with JSON schema inputs, optional structured output. ([Model Context Protocol][2])
+* **Skill** (your concept): a higher-level capability package that may bundle tools + policies + templates + result shaping. (Not an MCP primitive; we implement it on top.)
+* **Capability Pack**: the minimal set of tool schemas + skill handles + policy constraints injected into the model for a single turn.
+
+---
+
+## 1) Core invariants (MUST, no exceptions)
+
+### Invariant A — Minimal Context
+
+**UCP-P MUST NOT inject any tool/skill schema unless it passes a relevance threshold under a strict token budget.**
+
+* A “capability pack” is always **budgeted**.
+* If the predicted tool set is too large, UCP-P MUST degrade to **progressive disclosure** rather than dumping everything.
+
+Why: tool schemas can explode prompt size; progressive loading is a proven remedy. ([Anthropic][7])
+
+### Invariant B — Minimal Resources
+
+**UCP-P MUST NOT start or keep running tool servers unless they are needed.**
+
+* Servers are started on-demand (or “pre-warmed” only when probability × benefit > cost).
+* Idle servers are shutdown via TTL.
+
+Why: local environment should remain snappy; also reduces attack surface. ([Model Context Protocol][9])
+
+### Invariant C — Capability-Based Safety (Least Privilege)
+
+**Tools MUST be granted as scoped capabilities, not ambient authority.**
+
+* Each tool call runs under a policy: allowed directories, allowed network domains, rate limits, etc.
+* Sensitive actions MUST require explicit approval, or a user-defined policy waiver.
+
+This aligns with MCP’s security posture: clients should confirm sensitive ops and validate tool results. ([Model Context Protocol][2])
+
+### Invariant D — Tool Metadata Is Untrusted
+
+**UCP-P MUST treat tool descriptions/metadata as potentially adversarial.**
+
+* Defend against tool poisoning and rug pulls (tool definition changes after approval). ([Microsoft Developer][5])
+* Tool definitions are “pinned” per session (hash + version) unless explicitly updated.
+
+### Invariant E — Result Shaping (No Big Blobs in Context)
+
+**UCP-P MUST NOT pass large tool outputs back into the model raw.**
+Instead:
+
+* return a short summary + structuredContent (when possible),
+* store the full payload in a local object store,
+* provide a **resource link** (or a UCP-managed blob handle) so the model can fetch chunks if needed. ([Model Context Protocol][2])
+
+### Invariant F — Learning Must Be Local-First
+
+**All optimization signals (logs, style profile, tool efficacy) MUST default to local storage and local computation.**
+Optional cloud sync can exist, but it must be opt-in.
+
+### Invariant G — Vendor Agnostic by Construction
+
+**UCP-P MUST maintain a stable internal schema for tools/skills and compile to provider-specific tool formats via adapters.**
+The internal truth is MCP-flavored, adapters handle OpenAI/Anthropic/etc.
+
+---
+
+## 2) System architecture (components)
+
+### 2.1 High-level block diagram (text)
+
+**User/UI** ↔ **UCP-P Proxy** ↔ **LLM Provider / Local Model**
+Inside **UCP-P Proxy**:
+
+1. **Traffic Interceptor** (API proxy, streaming-aware)
+2. **Session State Store** (conversation summary, tool usage, budgets)
+3. **Predictive Planner** (tool/skill selection + budgeting)
+4. **Policy Engine** (least privilege + approvals)
+5. **MCP Orchestrator** (tool discovery, server lifecycle, tool routing)
+6. **Schema Compiler** (MCP → provider tool schema adapter)
+7. **Result Shaper** (summaries, structured output, resource links)
+8. **Learning Engine** (bandit/ML-lite updates)
+9. **User Style Engine** (format preferences + response shaping)
+
+### 2.2 External interfaces
+
+UCP-P should expose (at minimum):
+
+**Interface 1 — LLM API Proxy**
+
+* OpenAI-compatible endpoints (chat/responses style)
+* Anthropic-compatible endpoint (messages style)
+* Streaming support (SSE / chunked responses)
+* Tool-call interception (provider-native formats)
+
+**Interface 2 — MCP Host Runtime**
+
+* MCP client connections to local/remote MCP servers via stdio or Streamable HTTP. ([Model Context Protocol][1])
+
+**Interface 3 — Local Control Plane**
+
+* CLI/UI for:
+
+  * installed skills/tools registry
+  * permission policies
+  * audit logs
+  * performance budgets
+  * “pin tool versions” / “allow updates” toggles
+
+---
+
+## 3) Data models (canonical structs)
+
+### 3.1 ToolDescriptor (internal)
+
+* `server_label`
+* `tool_name`
+* `title`
+* `description`
+* `input_schema` (JSON Schema)
+* `output_schema?`
+* `risk_level` (enum: read_only, local_write, network_read, network_write, exec_like, finance_like, etc.)
+* `cost_model` (expected latency, tokens, CPU, $)
+* `trust` (signed/verified, local, remote, pinned hash)
+
+MCP tool definitions have name/title/description/inputSchema/outputSchema; we mirror that. ([Model Context Protocol][2])
+
+### 3.2 SkillDescriptor (your abstraction)
+
+* `skill_id`
+* `intent_tags` (e.g., “code_search”, “calendar”, “pdf_extract”)
+* `tool_deps[]` (list of ToolDescriptor references)
+* `skill_prompt_stub` (tiny; not the whole manual)
+* `runbook` (optional: executable workflow graph)
+* `result_contract` (structured output format)
+* `policy_template` (least-privilege scopes)
+* `version`, `hash`
+
+### 3.3 SessionState
+
+* `conversation_summary` (rolling, compressed)
+* `recent_turns` (last N turns)
+* `active_capabilities` (tools/skills currently granted)
+* `tool_usage_stats` (counts, success rate)
+* `budgets` (token budget, latency budget)
+* `model_profile_id`
+* `user_profile_id`
+
+### 3.4 UserProfile (style + preferences)
+
+* `verbosity_target` (short/medium/long)
+* `format_preference` (bullets vs prose, code fences, etc.)
+* `risk_tolerance` (auto-approve safe reads? never auto-write?)
+* `domain_biases` (what they do often)
+* `privacy_mode` (tokenize PII? never send files to cloud?)
+
+---
+
+## 4) Request/response lifecycle (the “main loop”)
+
+### Step 0 — Intercept
+
+UCP-P receives:
+
+* user message
+* model config (which model, temperature, etc.)
+* conversation ID
+
+### Step 1 — Build a “Turn Intent Graph”
+
+Lightweight parsing:
+
+* classify request type: Q&A, coding, planning, “act on files”, “act on web”, etc.
+* detect entities: file paths, URLs, repo names, dates, emails
+* detect constraints: “don’t browse”, “local only”, “no external calls”
+
+### Step 2 — Capability Planning (predict + budget)
+
+Planner outputs a `CapabilityPlan`:
+
+* tools/skills to grant (top-k)
+* per-tool scopes (directories, domains)
+* whether to prewarm any server
+* injection mode (direct vs progressive vs code-mode)
+
+### Step 3 — Compile Capability Pack to the Model
+
+Depending on provider + mode:
+
+* **Direct Tool Mode**: attach selected tools in provider’s tool schema format.
+* **Progressive Disclosure Mode**: attach only:
+
+  * a tiny “tool_search” tool
+  * a tiny “tool_enable” tool
+  * plus 0–2 high-confidence domain tools
+* **Code Mode**: attach only a safe `exec_code` tool + a minimal “MCP runtime library contract” (details below).
+
+The point: **the model sees only what it needs**.
+
+### Step 4 — Model runs; UCP-P intercepts tool calls
+
+When the model requests a tool:
+
+* validate against policy engine
+* if not permitted: deny + return structured error to model
+* if permitted: route via MCP
+
+### Step 5 — MCP tool execution + lifecycle
+
+* ensure MCP server is running (spawn if necessary)
+* call `tools/call` with validated args ([Model Context Protocol][2])
+* enforce rate limits + timeouts
+* capture raw output
+
+### Step 6 — Result shaping + memory
+
+* if output small: pass through as text + structuredContent
+* if output big:
+
+  * store in local object store
+  * return summary + resource_link/blob_handle
+* optionally: return structuredContent for machine-usable results (lists, IDs)
+
+MCP tool results explicitly support structuredContent + resource links; we mirror those semantics even when translating to vendor tool outputs. ([Model Context Protocol][2])
+
+### Step 7 — Final user response
+
+* inject formatting instructions based on UserProfile (lightweight)
+* stream result back to user
+
+### Step 8 — Learning update
+
+Log events (local):
+
+* what tools were offered
+* what tools were used
+* latency + success
+* whether user seemed satisfied (optional explicit thumbs up/down)
+
+---
+
+## 5) Capability planning: algorithms that stay lightweight
+
+Tool/skill selection is a **multi-label recommendation** problem under a hard budget. The key is: **candidate generation cheap, ranking cheap, learning cheap**.
+
+### 5.1 Candidate generation (fast)
+
+Use multiple weak signals; union them:
+
+1. **Lexical triggers**
+
+   * “open file / read folder / grep” → filesystem skill
+   * “schedule / meeting / tomorrow 3pm” → calendar skill
+2. **Entity detectors**
+
+   * URL present → web tool candidate
+   * file path present → filesystem tool candidate
+3. **Tool-description retrieval**
+
+   * Maintain an index of tool/skill descriptions.
+   * Rank by BM25 or simple TF-IDF cosine.
+4. Optional: **embedding retrieval**
+
+   * Use a tiny local embedding model for semantic match (only if user enables).
+
+### 5.2 Ranking (cheap but principled)
+
+For each candidate capability `c`, compute:
+
+`score(c) = P(needed | context) * Benefit(c) / Cost(c)`
+
+Where:
+
+* `P(needed | context)` is a learned probability (online-updated logistic regression or even a weighted table).
+* `Benefit(c)` can be estimated from past success rate + “user satisfaction proxy”.
+* `Cost(c)` includes:
+
+  * token cost of schema injection
+  * expected latency
+  * security risk multiplier (higher risk → higher effective cost)
+
+### 5.3 Selection (budgeted)
+
+Given a token budget `B` for tool schemas:
+
+* sort by score descending
+* add tools until budget exceeded
+* if still too many high-scoring tools:
+
+  * switch to progressive disclosure or code mode
+
+### 5.4 Learning loop (multi-armed bandit flavor)
+
+Update per capability after each turn:
+
+* Reward +1 if tool was used and succeeded.
+* Small penalty if injected but unused.
+* Bigger penalty if tool was needed but missing (detected via follow-up like “you can’t access my files”).
+  Use exponential moving average (EMA) so it adapts quickly without overfitting.
+
+This is simple, robust, and runs on a laptop without drama.
+
+---
+
+## 6) Injection modes (how to kill context bloat in practice)
+
+### Mode 1 — Direct Tool Mode (baseline)
+
+Best when:
+
+* only 1–5 tools relevant
+* model has reliable function calling
+* schemas are small
+
+Mechanics:
+
+* UCP-P queries MCP servers for tool definitions (`tools/list`) ([Model Context Protocol][2])
+* compiles them to the provider’s tool format
+* injects them with short, clean descriptions
+
+### Mode 2 — Progressive Disclosure Mode (preferred default when tool library is large)
+
+Key idea: don’t ship the entire tool catalog; ship a **tool discovery micro-interface**.
+
+Always include a tiny “MetaTool” set, e.g.:
+
+* `ucp.search_capabilities(query, top_k, detail_level)`
+* `ucp.enable_capability(capability_id, scope)`
+* `ucp.fetch_blob(blob_id, offset, limit)`
+
+Then only include 0–2 “likely needed” real tools. If the model realizes it needs more, it can call search and enable.
+
+This aligns with the idea that listing everything is wasteful, and progressive loading is the remedy. ([Anthropic][7])
+
+### Mode 3 — Code Mode (max compression, maximum scalability)
+
+This is the “one weird trick” that actually works when you have tons of tools.
+
+Anthropic’s documented approach: let the model write code that loads tool stubs on demand, massively shrinking token overhead. ([Anthropic][7])
+
+**How to implement safely in UCP-P:**
+
+* Expose exactly one tool: `ucp.exec_sandboxed(code, language, limits, attachments)`
+* The sandbox contains:
+
+  * an MCP client library (`mcp.call(server, tool, args)`)
+  * a read-only filesystem of tool stubs/docs (skill index)
+  * no general network access by default
+* The model uses code to:
+
+  * search local docs for the right tool
+  * call it
+  * post-process results locally (so we don’t re-inject giant outputs repeatedly)
+
+**Why this helps your law (“no context bloat”):**
+
+* the LLM context includes only: “you can run code; here’s the library contract”
+* tool definitions live outside the context and are pulled only if needed
+* large intermediate data can be manipulated inside sandbox without re-tokenizing it repeatedly ([Anthropic][7])
+
+---
+
+## 7) MCP server lifecycle & orchestration (no resource bloat)
+
+### 7.1 Server registry
+
+UCP-P maintains a registry of installed MCP servers:
+
+* server label
+* transport type (stdio vs Streamable HTTP) ([Model Context Protocol][1])
+* start command + args
+* env var requirements
+* permissions + scopes
+
+This mirrors how MCP hosts configure servers (e.g., command/args patterns) and reinforces that starting servers is executing code—needs consent. ([Model Context Protocol][10])
+
+### 7.2 On-demand spawning policy
+
+Spawn server if:
+
+* model actually called a tool on that server, OR
+* `P(needed)` exceeds prewarm threshold AND server is cheap + safe
+
+Kill server if:
+
+* idle for TTL
+* exceeded error threshold
+* policy change revokes it
+
+### 7.3 Transport choices
+
+* Prefer **stdio** for local-only servers when possible (harder to accidentally expose on the network). ([Model Context Protocol][1])
+* Use Streamable HTTP for:
+
+  * remote servers
+  * cases where stdio is impossible
+  * multi-client scenarios
+    But enforce localhost-only binding for local HTTP servers.
+
+---
+
+## 8) Output shaping: the “never send the whale through the straw” rule
+
+Tool results in MCP can contain multiple content types (text/image/audio/resource_link/embedded resources) plus structuredContent. ([Model Context Protocol][2])
+
+UCP-P’s result shaper should enforce:
+
+1. **Structured first**
+   If tool has `outputSchema`, prefer structuredContent; validate where feasible. ([Model Context Protocol][2])
+
+2. **Summarize large text**
+   If output > N tokens:
+
+* generate a short summary (either via a tiny local summarizer or a cheap heuristic)
+* store full output as blob
+* give model a handle to fetch chunks later
+
+3. **Resource links for files**
+   If the tool output is a file or document, return a resource_link instead of inline content. MCP supports resource links explicitly. ([Model Context Protocol][2])
+
+4. **Deduplicate across turns**
+   Never re-inject the same large payload multiple times. Store and refer.
+
+This directly targets your “no context bloat” law.
+
+---
+
+## 9) Personalization & optimization over time (without turning into spyware)
+
+### 9.1 Style learning (safe, shallow)
+
+UCP-P tracks formatting preferences, not deep personal facts.
+Signals:
+
+* average message length
+* preference for bullets vs narrative
+* whether user requests “step-by-step” or “just the answer”
+* code-heavy vs prose-heavy
+
+Inject a tiny style directive into the system message, e.g.:
+
+* “Be concise; use bullets; show code first; no fluff.”
+
+### 9.2 Model profile learning
+
+Maintain a per-model “compatibility record”:
+
+* tool calling reliability
+* schema feature support (e.g., if model chokes on complex JSON Schema)
+* optimal tool description length
+* max tools per call before failure rate spikes
+
+UCP-P uses this to tune:
+
+* tool schema simplification
+* threshold for switching to progressive disclosure
+* whether to prefer code mode
+
+### 9.3 Tool efficacy learning
+
+Maintain:
+
+* per-tool usage rate when offered
+* success rate
+* average latency
+* “user friction events” (user says “why didn’t you…”)
+
+Update ranking weights accordingly.
+
+---
+
+## 10) Security model (because MCP + tools = sharp edges)
+
+### 10.1 Threats to assume (realistic, not paranoid)
+
+1. **Tool poisoning / indirect prompt injection**
+   Attacker hides instructions in tool descriptions or external content; model follows them. ([Microsoft Developer][5])
+2. **Rug pull**
+   Tool definition changes after user approved it. ([Microsoft Developer][5])
+3. **Local server compromise / unsafe startup commands**
+   Running MCP servers is running code; can exfiltrate data or damage system. ([Model Context Protocol][9])
+4. **Network exposure**
+   Servers bound to `0.0.0.0` become reachable by others on local networks. ([Backslash][6])
+5. **OAuth proxy pitfalls**
+   Confused deputy, token passthrough (explicitly forbidden), session hijacking. ([Model Context Protocol][9])
+
+### 10.2 Mandatory mitigations (tie back to invariants)
+
+**Mitigation 1 — Tool definition pinning**
+
+* When a server is enabled, record tool list + hashes.
+* If tool metadata changes, treat as “new tool” requiring re-approval.
+
+**Mitigation 2 — “Show your work” for tool calls**
+For any sensitive tool call, show the user:
+
+* tool name
+* arguments
+* scope (files/domains)
+  This matches MCP guidance that clients should show tool inputs before calling to avoid exfiltration. ([Model Context Protocol][2])
+
+**Mitigation 3 — Sandboxing**
+
+* MCP servers started by UCP-P run in a restricted sandbox when feasible.
+* Code-mode sandbox is even stricter (no network, limited FS, CPU/mem quotas).
+
+MCP security best practices explicitly recommend sandboxing and showing exact commands before running local servers. ([Model Context Protocol][9])
+
+**Mitigation 4 — Local-only binding**
+
+* For any HTTP-based local MCP server: bind to `127.0.0.1` only.
+* Reject configs that bind to `0.0.0.0` unless user explicitly overrides with scary warnings.
+
+Backslash’s research shows why: exposure on local networks can be catastrophic. ([Backslash][6])
+
+**Mitigation 5 — Supply chain controls**
+
+* Prefer servers from trusted registries or signed packages.
+* Maintain allowlist of executable paths.
+* Deny “one-click run random npx command” unless user consents to the *exact* command shown untruncated. ([Model Context Protocol][9])
+
+**Mitigation 6 — OAuth correctness**
+
+* Never accept client-provided tokens for downstream APIs (“token passthrough” anti-pattern). ([Model Context Protocol][9])
+* Use proper audience/resource indicators per spec guidance when acting as a proxy.
+
+---
+
+## 11) Observability (so you can debug reality)
+
+UCP-P should produce an **audit trail** per session:
+
+* capability plan per turn (what was injected and why)
+* tool calls executed (args redacted where needed)
+* server lifecycle events (spawn/kill)
+* token budget usage (tool schema tokens vs user text vs history)
+* failures and fallbacks
+
+Also provide a “dry run” mode:
+
+* planner runs and prints planned capabilities
+* no tool calls executed
+
+This will save your sanity.
+
+---
+
+## 12) Evaluation metrics (prove you’re obeying your laws)
+
+You want “no bloat” and “max ability.” Those trade off. Measure them explicitly:
+
+### Context bloat metrics
+
+* **Tool schema token overhead / turn**
+* **Total injected tokens / turn**
+* **Repeated payload injection rate** (should approach zero)
+
+### Resource bloat metrics
+
+* idle CPU/memory footprint
+* average servers running concurrently
+* server spawn latency distribution
+
+### Capability quality metrics
+
+* tool precision: offered tools that get used
+* tool recall: tasks needing tools where tool wasn’t offered
+* resolution turns: number of turns to complete a task
+
+### Safety metrics
+
+* denied dangerous calls
+* approvals requested vs executed
+* detected tool changes (rug pull alerts)
+
+---
+
+# Self-critique (what could break / where the dragons are) + refinements
+
+1. **“No oversight” vs real safety**
+
+* Fully automatic write actions (delete files, send messages) are a foot-gun.
+  Refinement: interpret “no oversight” as “no manual tool provisioning,” not “no safety gates.”
+
+2. **Tool selection is inherently uncertain**
+
+* A lightweight predictor will miss edge cases.
+  Refinement: always keep a small progressive-disclosure escape hatch (meta tools) so the model can request more capabilities when it realizes it needs them.
+
+3. **Code mode is powerful but risky**
+
+* Running model-written code is dangerous if not sandboxed.
+  Refinement: code mode should be opt-in or automatically enabled only when sandbox hardening is available and policy allows it.
+
+4. **Adapters are tedious**
+
+* Provider tool schemas differ; conversion bugs can become the #1 source of pain.
+  Refinement: treat adapter correctness as a first-class test suite with golden fixtures per provider/model profile.
+
+5. **Tool poisoning is not hypothetical**
+
+* It’s explicitly discussed by Microsoft and others; tool metadata can be weaponized. ([Microsoft Developer][5])
+  Refinement: pin tool definitions per session, require re-approval on change, and keep a trust score per server.
+
+---
+
+## Confidence level & limitations
+
+**Overall confidence in this architecture meeting your stated laws (minimal context/resource bloat + automatic capability injection): 82%.**
+
+**Why not 95%?**
+
+* Real-world “universal” proxying across every client/provider has integration friction (auth flows, streaming quirks, tool-call formats).
+* Security hardening (sandboxing across OSes) is non-trivial; without it, “max ability” becomes “max blast radius.”
+* Tool selection learning will work, but getting it “magically perfect” requires careful feedback signals; otherwise it can converge slowly or bias toward familiar tools.
+
+**Highest-confidence factual claims (90–96%):**
+
+* MCP uses JSON-RPC and defines tools/resources/prompts with list/call/read operations and supports stdio + Streamable HTTP. ([Model Context Protocol][1])
+* Tool outputs can be structured and can include resource links (useful for avoiding context bloat). ([Model Context Protocol][2])
+* Tool poisoning / rug pull risk via tool metadata is real and documented. ([Microsoft Developer][5])
+
+**Key limitation:** I don’t know your exact deployment target (VS Code extension, general desktop, CLI, or embedded), so I wrote the spec to support multiple integration paths; the core invariants and architecture hold, but the concrete API proxy surface will differ by environment.
+
+[1]: https://modelcontextprotocol.io/docs/learn/architecture "Architecture overview - Model Context Protocol"
+[2]: https://modelcontextprotocol.io/specification/2025-06-18/server/tools "Tools - Model Context Protocol"
+[3]: https://modelcontextprotocol.io/specification/2025-06-18/server/prompts "Prompts - Model Context Protocol"
+[4]: https://modelcontextprotocol.io/specification/2025-06-18/changelog "Key Changes - Model Context Protocol"
+[5]: https://developer.microsoft.com/blog/protecting-against-indirect-injection-attacks-mcp "Protecting against indirect prompt injection attacks in MCP - Microsoft for Developers"
+[6]: https://www.backslash.security/blog/hundreds-of-mcp-servers-vulnerable-to-abuse "Threat Research: Hundreds of MCP Servers Vulnerable to Abuse - Backslash"
+[7]: https://www.anthropic.com/engineering/code-execution-with-mcp "Code execution with MCP: building more efficient AI agents \ Anthropic"
+[8]: https://openai.github.io/openai-agents-js/guides/mcp/ "Model Context Protocol (MCP) | OpenAI Agents SDK"
+[9]: https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices "Security Best Practices - Model Context Protocol"
+[10]: https://modelcontextprotocol.io/docs/develop/connect-local-servers "Connect to local MCP servers - Model Context Protocol"

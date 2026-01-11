@@ -2,6 +2,41 @@
 
 > **The missing layer between LLMs and their tools.** UCP solves "Tool Overload" by dynamically injecting only the relevant tool schemas based on conversation context.
 
+## Dual-Track Architecture
+
+UCP is now organized into two complementary tracks with shared components:
+
+### 🏠 Local-First MVP (Open Source)
+- **Privacy-first**: All data stays on your machine
+- **Simplicity**: Easy to install and use
+- **Immediate value**: Core routing functionality without complexity
+- **Open source**: Free to use and modify
+
+**Location**: [`local/`](local/)  
+**Installation**: `pip install ucp-mvp`  
+**Status**: ✅ Available now
+
+### ☁️ Cloud Version (Future Business)
+- **Scalability**: Horizontal scaling with Kubernetes
+- **Multi-tenancy**: Isolated tenant environments
+- **Enterprise-ready**: SSO, RBAC, compliance features
+- **SOTA features**: Full routing pipeline, RAFT fine-tuning, LangGraph
+
+**Location**: [`cloud/`](cloud/)  
+**Status**: 📋 Planned, not yet implemented
+
+### 🔗 Shared Components
+Common code used by both versions:
+- **Data Models**: Common data structures
+- **Configuration**: Shared configuration classes
+- **Interfaces**: Abstract interfaces for compatibility
+- **Transport**: MCP protocol implementation
+
+**Location**: [`shared/`](shared/)  
+**Package**: `pip install ucp-core`
+
+---
+
 ## The Problem
 
 When you connect an LLM to 100+ tools via MCP (Model Context Protocol), performance degrades:
@@ -31,6 +66,7 @@ Instead of `ListTools() -> [All 500 Tools]`, UCP implements `ListTools(context) 
 
 ## Key Features
 
+### Local MVP Features
 - **Semantic Tool Retrieval**: Vector-indexed tool schemas with hybrid semantic + keyword search
 - **Context-Aware Routing**: Analyzes conversation to predict needed tools
 - **Session Persistence**: Maintains state across turns with SQLite backend
@@ -38,127 +74,43 @@ Instead of `ListTools() -> [All 500 Tools]`, UCP implements `ListTools(context) 
 - **Multiple Transports**: Stdio (Claude Desktop), HTTP/SSE (web apps)
 - **Debug Dashboard**: Streamlit UI for visualizing routing decisions
 
-## Status & Validation
-
-UCP is currently in **Alpha**. The core routing logic is validated via an evaluation harness.
-
-To run the validation suite:
-
-```bash
-python clients/harness/run_eval.py
-```
-
-See [docs/evaluation_harness.md](docs/evaluation_harness.md) for details on interpreting results.
-
-## 🚀 Development Status & Roadmap
-
-**Current Status:** ~65% complete, Alpha stage  
-**Target:** v1.0 production release in 16 weeks
-
-### 📋 Planning Documents
-
-We've created a comprehensive development plan based on proven methodologies from Gorilla, LangGraph, and LlamaIndex:
-
-- **[START_HERE.md](START_HERE.md)** - Executive summary and immediate next steps
-- **[DEV_PLAN_TO_COMPLETION.md](DEV_PLAN_TO_COMPLETION.md)** - Full 16-week roadmap with 39 milestones
-- **[ROADMAP_VISUAL.md](ROADMAP_VISUAL.md)** - Visual timeline and critical path
-- **[PRIORITIZATION_MATRIX.md](PRIORITIZATION_MATRIX.md)** - Decision framework for feature prioritization
-- **[.agent/workflows/start-phase1.md](.agent/workflows/start-phase1.md)** - Week 1 step-by-step guide
-
-### 🎯 Next Milestones
-
-**Phase 1 (Weeks 1-4): Stabilize Core**
-- Fix failing tests
-- Validate with real MCP servers (GitHub, filesystem)
-- Ship alpha to PyPI + Docker
-
-**Phase 2 (Weeks 5-10): Ship Clients**
-- VS Code extension (critical path)
-- CLI client
-- Desktop app
-
-**Phase 3 (Weeks 11-16): Advanced Features**
-- RAFT fine-tuning pipeline
-- Production hardening
-- Community launch
-
-See [ROADMAP_VISUAL.md](ROADMAP_VISUAL.md) for the full timeline.
+### Cloud Version Features (Future)
+- All Local MVP features plus:
+- **Cross-Encoder Reranking**: Advanced tool ranking
+- **Bandit Exploration**: Intelligent tool discovery
+- **Online Optimization**: Continuous improvement
+- **RAFT Fine-Tuning**: Custom model training
+- **LangGraph Orchestration**: Complex workflow support
+- **Centralized Telemetry**: Enterprise observability
 
 ## Quick Start
 
-### Installation
+### Local MVP (Available Now)
 
 ```bash
-pip install ucp
-
-# Or from source
-git clone https://github.com/your-org/UniversalContextProtocol
-cd UniversalContextProtocol
-pip install -e ".[dev]"
-```
-
-### Configuration
-
-Create `ucp_config.yaml`:
-
-```yaml
-server:
-  name: "My UCP Gateway"
-  transport: stdio
-
-tool_zoo:
-  embedding_model: "all-MiniLM-L6-v2"
-  top_k: 5
-
-router:
-  mode: hybrid
-  max_tools: 10
-
-downstream_servers:
-  - name: github
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: "your-token"
-    tags: [code, git]
-
-  - name: gmail
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-gmail"]
-    tags: [email, communication]
-```
-
-### Run UCP
-
-```bash
-# Index tools from downstream servers
-ucp index
-
-# Start the gateway (stdio mode)
+pip install ucp-mvp
+ucp init-config
 ucp serve
-
-# Or with HTTP transport
-uvicorn ucp.http_server:get_app --port 8765
 ```
 
-### Connect Claude Desktop
+### Claude Desktop Integration
 
-Add to your Claude Desktop config (`claude_desktop_config.json`):
+Add to your Claude Desktop config:
 
 ```json
 {
   "mcpServers": {
     "ucp": {
       "command": "ucp",
-      "args": ["serve", "-c", "path/to/ucp_config.yaml"]
+      "args": ["serve", "-c", "~/.ucp/ucp_config.yaml"]
     }
   }
 }
 ```
 
-Now Claude sees only the tools relevant to your current conversation!
+### Cloud Version (Coming Soon)
+
+The cloud version is currently in planning. See [`cloud/docs/roadmap.md`](cloud/docs/roadmap.md) for the implementation timeline.
 
 ## How It Works
 
@@ -187,32 +139,79 @@ Now Claude sees only the tools relevant to your current conversation!
 
 ### The Routing Loop
 
-1. **User Message**: "I need to send an email about the PR"
+1. **User Message**: "I need to send an email about a PR"
 2. **Domain Detection**: Identifies "email" and "code" domains
 3. **Tool Zoo Query**: Semantic search for relevant tools
 4. **Re-ranking**: Boosts recently used tools, applies diversity filter
-5. **Context Injection**: Returns only Gmail + GitHub tools to the LLM
-6. **Tool Call**: Routes `gmail.send_email` to the Gmail MCP server
+5. **Context Injection**: Returns only Gmail + GitHub tools to LLM
+6. **Tool Call**: Routes `gmail.send_email` to Gmail MCP server
 7. **Learning**: Records which tools were actually used
 
-### Adaptive Learning
+## Project Structure
 
-UCP learns from usage patterns:
-
-```python
-# After each session, UCP records:
-# - Which tools were predicted
-# - Which tools were actually used
-# - Co-occurrence patterns (tools used together)
-
-# This data can be exported for RAFT fine-tuning:
-training_data = router.export_training_data()
+```
+UniversalContextProtocol/
+├── README.md                          # This file
+├── DEVELOPMENT_GUIDE.md              # Development guidelines
+├── LICENSE                            # MIT license
+├── .gitignore
+├── pyproject.toml                     # Root project config
+├── ucp_config.example.yaml            # Shared config template
+│
+├── shared/                            # SHARED CODE BETWEEN VERSIONS
+│   ├── README.md                     # Shared components documentation
+│   ├── src/
+│   │   ├── ucp_core/                # Core abstractions and interfaces
+│   │   └── ucp_transport/            # Transport layer abstractions
+│   ├── tests/
+│   ├── docs/
+│   │   └── api_reference.md         # Shared API documentation
+│   └── pyproject.toml               # Shared package config
+│
+├── local/                             # LOCAL-FIRST MVP (Open Source)
+│   ├── README.md                     # MVP-specific documentation
+│   ├── pyproject.toml               # MVP package config
+│   ├── src/ucp_mvp/                 # MVP implementation
+│   ├── tests/
+│   ├── docs/
+│   │   ├── getting_started.md       # MVP getting started guide
+│   │   ├── mvp_architecture.md      # Architecture overview
+│   │   ├── mvp_user_guide.md        # User guide
+│   │   └── mvp_deployment.md        # Deployment guide
+│   └── clients/                      # CLI and desktop clients
+│
+├── cloud/                            # CLOUD VERSION (Future Business)
+│   ├── README.md                     # Cloud-specific documentation
+│   ├── pyproject.toml               # Cloud package config
+│   ├── src/ucp_cloud/               # Cloud implementation
+│   │   ├── api/                     # REST API
+│   │   ├── auth/                    # Authentication & authorization
+│   │   └── pipeline/                 # Data pipelines
+│   ├── tests/
+│   ├── docs/
+│   │   ├── roadmap.md               # Cloud implementation roadmap
+│   │   ├── cloud_architecture.md    # Architecture overview
+│   │   ├── cloud_deployment.md      # Deployment guide
+│   │   └── cloud_api_reference.md   # API reference
+│   ├── infrastructure/              # Terraform/Helm/Docker
+│   └── clients/                      # VS Code extension, web client
+│
+├── docs/                             # SHARED DOCUMENTATION
+│   ├── index.md
+│   ├── getting_started.md
+│   ├── debugging_playbook.md
+│   ├── evaluation_harness.md
+│   └── research/
+│
+├── reports/                          # AUDIT AND VALIDATION REPORTS
+├── plans/                            # PLANNING DOCUMENTS
+└── archive/                          # ARCHIVED CODE (Original monolithic codebase)
 ```
 
 ## CLI Reference
 
 ```bash
-# Start the UCP server
+# Start UCP server
 ucp serve [-c CONFIG] [--log-level DEBUG|INFO|WARNING|ERROR]
 
 # Index tools from downstream servers
@@ -230,11 +229,11 @@ ucp init-config [-o OUTPUT_PATH]
 
 ## Debug Dashboard
 
-Launch the Streamlit dashboard to visualize UCP internals:
+Launch Streamlit dashboard to visualize UCP internals:
 
 ```bash
 pip install streamlit
-streamlit run src/ucp/dashboard.py
+streamlit run local/src/ucp_mvp/dashboard.py
 ```
 
 Features:
@@ -242,80 +241,6 @@ Features:
 - View Tool Zoo statistics
 - Explore session history
 - Monitor router learning
-
-## API Reference
-
-### Python API
-
-```python
-from ucp import UCPServer, UCPConfig
-
-# Load configuration
-config = UCPConfig.load("ucp_config.yaml")
-
-# Create server
-server = UCPServer(config)
-
-# Initialize (connects to downstream servers, indexes tools)
-await server.initialize()
-
-# Update conversation context
-await server.update_context("I need to send an email")
-
-# Get dynamically selected tools
-tools = await server._list_tools()
-# Returns only email-related tools!
-
-# Execute a tool
-result = await server._call_tool("gmail.send_email", {
-    "to": "boss@company.com",
-    "subject": "Update",
-    "body": "Here's the update..."
-})
-```
-
-### HTTP API
-
-```bash
-# List tools (context-aware)
-GET /mcp/tools/list?session_id=xxx
-
-# Call a tool
-POST /mcp/tools/call
-{
-  "name": "gmail.send_email",
-  "arguments": {"to": "...", "subject": "...", "body": "..."}
-}
-
-# Update context
-POST /context/update
-{
-  "message": "I need to send an email",
-  "role": "user"
-}
-
-# Search tools
-GET /tools/search?query=send+email&top_k=5
-```
-
-## Structure
-
-```
-UniversalContextProtocol/
-├── src/ucp/              # Core implementation
-│   ├── server.py         # Main UCP server
-│   ├── router.py         # Semantic routing
-│   ├── tool_zoo.py       # Vector index
-│   ├── session.py        # State management
-│   ├── connection_pool.py # Downstream connections
-│   ├── graph.py          # LangGraph integration
-│   ├── http_server.py    # HTTP/SSE transport
-│   └── dashboard.py      # Debug UI
-├── tests/                # Test suite
-├── docs/                 # Research & design docs
-├── reports/              # Audit reports
-└── ucp_config.yaml       # Configuration
-```
 
 ## Research Foundation
 
@@ -326,39 +251,53 @@ UCP synthesizes ideas from:
 - **[MemGPT](https://arxiv.org/abs/2310.11511)**: OS-style context management
 - **[LangGraph](https://github.com/langchain-ai/langgraph)**: Cyclic state machine orchestration
 
-See the [docs/](docs/) folder for detailed synthesis documents.
+See [`docs/`](docs/) folder for detailed synthesis documents.
 
-## Roadmap
+## Development
 
-- [x] Core MCP proxy functionality
-- [x] Semantic tool retrieval (ChromaDB + sentence-transformers)
-- [x] Hybrid search (semantic + keyword)
-- [x] Session persistence (SQLite)
-- [x] Adaptive learning from usage
-- [x] HTTP/SSE transport
-- [x] Debug dashboard
-- [ ] GPU acceleration for embeddings
-- [ ] Automated RAFT fine-tuning pipeline
-- [ ] Redis session backend for distributed deployments
-- [ ] Tool schema auto-discovery from OpenAPI specs
+For detailed development guidelines, see [`DEVELOPMENT_GUIDE.md`](DEVELOPMENT_GUIDE.md).
 
-## Contributing
-
-Contributions welcome! Please read the research docs in [docs/](docs/) first to understand the design philosophy.
+### Local MVP Development
 
 ```bash
-# Setup development environment
+cd local
 pip install -e ".[dev]"
+```
 
+### Cloud Development
+
+```bash
+cd cloud
+pip install -e ".[dev]"
+```
+
+### Shared Components Development
+
+```bash
+cd shared
+pip install -e ".[dev]"
+```
+
+### Testing
+
+```bash
 # Run tests
 pytest tests/ -v
 
 # Type checking
-mypy src/ucp
+mypy src/
 
 # Linting
-ruff check src/ucp
+ruff check src/
 ```
+
+## Documentation
+
+- **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** - Complete documentation navigation guide
+- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Development guidelines for both versions
+- **[local/README.md](local/README.md)** - Local MVP documentation
+- **[cloud/README.md](cloud/README.md)** - Cloud version documentation
+- **[shared/README.md](shared/README.md)** - Shared components documentation
 
 ## License
 

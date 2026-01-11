@@ -1,0 +1,181 @@
+{
+    "name": "ucp-vscode",
+    "displayName": "UCP - Universal Context Protocol",
+    "description": "Intelligent tool injection for LLM coding assistants. Predicts and injects the tools you need before you know you need them.",
+    "version": "0.1.0",
+    "publisher": "ucp",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "AI",
+        "Machine Learning",
+        "Programming Languages"
+    ],
+    "keywords": [
+        "ai",
+        "llm",
+        "mcp",
+        "tools",
+        "context",
+        "copilot"
+    ],
+    "icon": "media/icon.png",
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "ucp.startChat",
+                "title": "UCP: Start Chat",
+                "icon": "$(comment-discussion)"
+            },
+            {
+                "command": "ucp.showTools",
+                "title": "UCP: Show Available Tools"
+            },
+            {
+                "command": "ucp.predictTools",
+                "title": "UCP: Predict Tools for Selection"
+            },
+            {
+                "command": "ucp.configure",
+                "title": "UCP: Configure Settings"
+            },
+            {
+                "command": "ucp.clearHistory",
+                "title": "UCP: Clear Chat History"
+            },
+            {
+                "command": "ucp.exportTrainingData",
+                "title": "UCP: Export Training Data"
+            },
+            {
+                "command": "ucp.toggleServer",
+                "title": "UCP: Toggle Server Connection"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "ucp",
+                    "title": "UCP",
+                    "icon": "$(symbol-misc)"
+                }
+            ]
+        },
+        "views": {
+            "ucp": [
+                {
+                    "type": "webview",
+                    "id": "ucp.chat",
+                    "name": "Chat"
+                },
+                {
+                    "id": "ucp.tools",
+                    "name": "Predicted Tools"
+                },
+                {
+                    "id": "ucp.context",
+                    "name": "Context"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "UCP",
+            "properties": {
+                "ucp.serverUrl": {
+                    "type": "string",
+                    "default": "http://localhost:8765",
+                    "description": "URL of the UCP server"
+                },
+                "ucp.provider": {
+                    "type": "string",
+                    "default": "anthropic",
+                    "enum": [
+                        "openai",
+                        "anthropic",
+                        "google",
+                        "groq",
+                        "together",
+                        "openrouter",
+                        "deepseek",
+                        "mistral",
+                        "zai"
+                    ],
+                    "description": "Default LLM provider"
+                },
+                "ucp.model": {
+                    "type": "string",
+                    "default": "claude-sonnet-4-20250514",
+                    "description": "Default model to use"
+                },
+                "ucp.autoInject": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically inject predicted tools"
+                },
+                "ucp.captureContext": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Capture workspace context for predictions"
+                },
+                "ucp.maxTools": {
+                    "type": "number",
+                    "default": 5,
+                    "description": "Maximum number of tools to inject"
+                },
+                "ucp.showPredictions": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show tool predictions in status bar"
+                }
+            }
+        },
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "ucp.predictTools",
+                    "group": "navigation"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "ucp.clearHistory",
+                    "when": "view == ucp.chat",
+                    "group": "navigation"
+                }
+            ]
+        },
+        "keybindings": [
+            {
+                "command": "ucp.startChat",
+                "key": "ctrl+shift+u",
+                "mac": "cmd+shift+u"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile",
+        "lint": "eslint src --ext ts",
+        "package": "vsce package"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/vscode": "^1.85.0",
+        "@typescript-eslint/eslint-plugin": "^7.0.0",
+        "@typescript-eslint/parser": "^7.0.0",
+        "eslint": "^8.56.0",
+        "typescript": "^5.3.0",
+        "@vscode/vsce": "^2.22.0"
+    },
+    "dependencies": {
+        "axios": "^1.6.0",
+        "marked": "^11.0.0"
+    }
+}

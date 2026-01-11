@@ -1,0 +1,102 @@
+[
+    {
+        "id": "email_send_001",
+        "prompt": "Send an email to john@example.com about the project update",
+        "expected_tool": "mock-server.mock.send_email",
+        "expected_args_subset": {
+            "to": "john@example.com"
+        },
+        "domain": "email"
+    },
+    {
+        "id": "email_read_001",
+        "prompt": "Check my inbox for new messages",
+        "expected_tool": "mock-server.mock.read_inbox",
+        "expected_args_subset": {},
+        "domain": "email"
+    },
+    {
+        "id": "code_pr_001",
+        "prompt": "Create a pull request for the feature branch",
+        "expected_tool": "mock-server.mock.create_pr",
+        "expected_args_subset": {
+            "branch": "feature"
+        },
+        "domain": "code"
+    },
+    {
+        "id": "code_commit_001",
+        "prompt": "List the recent commits on main branch",
+        "expected_tool": "mock-server.mock.list_commits",
+        "expected_args_subset": {
+            "branch": "main"
+        },
+        "domain": "code"
+    },
+    {
+        "id": "calendar_schedule_001",
+        "prompt": "Schedule a meeting with the team for tomorrow at 2pm",
+        "expected_tool": "mock-server.mock.create_event",
+        "expected_args_subset": {},
+        "domain": "calendar"
+    },
+    {
+        "id": "slack_notify_001",
+        "prompt": "Send a Slack message to the engineering channel about the outage",
+        "expected_tool": "mock-server.mock.send_slack",
+        "expected_args_subset": {
+            "channel": "engineering"
+        },
+        "domain": "communication"
+    },
+    {
+        "id": "file_upload_001",
+        "prompt": "Upload the quarterly report to Google Drive",
+        "expected_tool": "mock-server.mock.upload_file",
+        "expected_args_subset": {},
+        "domain": "files"
+    },
+    {
+        "id": "search_web_001",
+        "prompt": "Search the web for Python async best practices",
+        "expected_tool": "mock-server.mock.web_search",
+        "expected_args_subset": {
+            "query": "Python async"
+        },
+        "domain": "web"
+    },
+    {
+        "id": "database_query_001",
+        "prompt": "Query the users table for active accounts",
+        "expected_tool": "mock-server.mock.sql_query",
+        "expected_args_subset": {},
+        "domain": "database"
+    },
+    {
+        "id": "payment_charge_001",
+        "prompt": "Process a $50 payment for the subscription",
+        "expected_tool": "mock-server.mock.stripe_charge",
+        "expected_args_subset": {
+            "amount": 50
+        },
+        "domain": "finance"
+    },
+    {
+        "id": "calculate_001",
+        "prompt": "Calculate 50 plus 100",
+        "expected_tool": "mock-server.mock.calculate",
+        "expected_args_subset": {
+            "expression": "50 plus 100"
+        },
+        "domain": "utility"
+    },
+    {
+        "id": "echo_001",
+        "prompt": "Echo the word 'banana'",
+        "expected_tool": "mock-server.mock.echo",
+        "expected_args_subset": {
+            "message": "banana"
+        },
+        "domain": "utility"
+    }
+]

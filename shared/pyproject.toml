@@ -1,18 +1,17 @@
 [project]
-name = "ucp"
+name = "ucp-core"
 version = "0.1.0"
-description = "Universal Context Protocol - Intelligent Gateway for Dynamic Tool Schema Injection"
+description = "Shared components for Universal Context Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "UCP Contributors"}
 ]
-keywords = ["mcp", "llm", "tools", "context", "ai", "agents", "dual-track"]
+keywords = ["mcp", "llm", "tools", "context", "shared"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -21,24 +20,8 @@ classifiers = [
 
 dependencies = [
     "mcp>=1.25.0",
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
     "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "httpx>=0.26.0",
-    "chromadb>=0.4.22",
-    "sentence-transformers>=2.2.0",
-    "langgraph>=0.0.40",
-    "langgraph-checkpoint-sqlite>=3.0.0",
-    "langchain-core>=0.1.0",
     "pyyaml>=6.0",
-    "structlog>=24.1.0",
-    "anyio>=4.2.0",
-    "sse-starlette>=2.0.0",
-    "qdrant-client>=1.6.0",
-    "redis>=5.0.0",
-    "psycopg2-binary>=2.9.0",
-    "prometheus-client>=0.19.0",
 ]
 
 [project.optional-dependencies]
@@ -51,15 +34,12 @@ dev = [
     "black>=24.1.0",
 ]
 
-[project.scripts]
-ucp = "ucp.cli:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ucp"]
+packages = ["src/ucp_core", "src/ucp_transport"]
 
 [tool.ruff]
 line-length = 100
