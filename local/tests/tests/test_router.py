@@ -180,6 +180,134 @@ class TestRouter:
 
         assert len(decision.selected_tools) <= 2
 
+    @pytest.mark.asyncio
+    async def test_route_respects_max_per_server(self, router_config, tool_zoo, session):
+        """Test that routing respects max_per_server limit for diversity."""
+        # Add more tools from the same server
+        additional_tools = [
+            ToolSchema(
+                name="gmail.search",
+                display_name="search_emails",
+                description="Search through emails",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.delete",
+                display_name="delete_email",
+                description="Delete an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.forward",
+                display_name="forward_email",
+                description="Forward an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.archive",
+                display_name="archive_email",
+                description="Archive an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.label",
+                display_name="label_email",
+                description="Add labels to email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+        ]
+        tool_zoo.add_tools(additional_tools)
+
+        # Test with max_per_server = 2 (should limit to 2 gmail tools)
+        router_config.max_tools = 10
+        router_config.max_per_server = 2
+        router = Router(router_config, tool_zoo)
+
+        session.add_message("user", "I need to do everything with my emails - search, delete, forward, archive, label, send, read")
+
+        decision = await router.route(session)
+
+        # Count tools from each server
+        gmail_tools = [t for t in decision.selected_tools if "gmail" in t]
+        
+        # Should not exceed max_per_server for gmail
+        assert len(gmail_tools) <= 2
+
+    @pytest.mark.asyncio
+    async def test_route_allows_more_than_three_per_server(self, router_config, tool_zoo, session):
+        """Test that router can return >3 tools from a single server when config allows."""
+        # Add more tools from the same server
+        additional_tools = [
+            ToolSchema(
+                name="gmail.search",
+                display_name="search_emails",
+                description="Search through emails",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.delete",
+                display_name="delete_email",
+                description="Delete an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.forward",
+                display_name="forward_email",
+                description="Forward an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.archive",
+                display_name="archive_email",
+                description="Archive an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.label",
+                display_name="label_email",
+                description="Add labels to email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+        ]
+        tool_zoo.add_tools(additional_tools)
+
+        # Test with max_per_server = 10 (should allow up to 10 gmail tools)
+        router_config.max_tools = 20
+        router_config.max_per_server = 10
+        router = Router(router_config, tool_zoo)
+
+        session.add_message("user", "I need to do everything with my emails - search, delete, forward, archive, label, send, read")
+
+        decision = await router.route(session)
+
+        # Count tools from each server
+        gmail_tools = [t for t in decision.selected_tools if "gmail" in t]
+        
+        # Should allow more than 3 tools from gmail server
+        assert len(gmail_tools) > 3
+        # But should not exceed max_per_server
+        assert len(gmail_tools) <= 10
+
 
 class TestAdaptiveRouter:
     """Tests for the AdaptiveRouter with learning."""
@@ -250,3 +378,131 @@ class TestAdaptiveRouter:
         # Slack should appear due to co-occurrence boost
         # (depending on scores, this may or may not be in top results)
         assert len(decision.selected_tools) > 0
+                description="Search through emails",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.delete",
+                display_name="delete_email",
+                description="Delete an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.forward",
+                display_name="forward_email",
+                description="Forward an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.archive",
+                display_name="archive_email",
+                description="Archive an email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+            ToolSchema(
+                name="gmail.label",
+                display_name="label_email",
+                description="Add labels to email",
+                server_name="gmail",
+                tags=["email"],
+                domain="email",
+            ),
+        ]
+        tool_zoo.add_tools(additional_tools)
+
+        # Test with max_per_server = 10 (should allow up to 10 gmail tools)
+        router_config.max_tools = 20
+        router_config.max_per_server = 10
+        router = Router(router_config, tool_zoo)
+
+        session.add_message("user", "I need to do everything with my emails - search, delete, forward, archive, label, send, read")
+
+        decision = await router.route(session)
+
+        # Count tools from each server
+        gmail_tools = [t for t in decision.selected_tools if "gmail" in t]
+        
+        # Should allow more than 3 tools from gmail server
+        assert len(gmail_tools) > 3
+        # But should not exceed max_per_server
+        assert len(gmail_tools) <= 10
+
+
+class TestAdaptiveRouter:
+    """Tests for the AdaptiveRouter with learning."""
+
+    @pytest.mark.asyncio
+    async def test_record_usage(self, router_config, tool_zoo, session):
+        """Test recording tool usage for learning."""
+        router = AdaptiveRouter(router_config, tool_zoo)
+
+        session.add_message("user", "Send email")
+        decision = await router.route(session)
+
+        # Record that only send_email was actually used
+        router.record_usage(decision, ["gmail.send_email"])
+
+        stats = router.get_learning_stats()
+        assert stats["predictions"] == 1
+
+    @pytest.mark.asyncio
+    async def test_cooccurrence_learning(self, router_config, tool_zoo, session):
+        """Test that co-occurrence is tracked."""
+        router = AdaptiveRouter(router_config, tool_zoo)
+
+        # Simulate multiple sessions where email + slack are used together
+        for _ in range(3):
+            session.add_message("user", "Send notification")
+            decision = await router.route(session)
+            router.record_usage(decision, ["gmail.send_email", "slack.send_message"])
+
+        # Check co-occurrence
+        cooccur = router.get_cooccurring_tools("gmail.send_email")
+        assert "slack.send_message" in cooccur
+
+    @pytest.mark.asyncio
+    async def test_export_training_data(self, router_config, tool_zoo, session):
+        """Test exporting data for RAFT fine-tuning."""
+        router = AdaptiveRouter(router_config, tool_zoo)
+
+        session.add_message("user", "Send email")
+        decision = await router.route(session)
+        router.record_usage(decision, ["gmail.send_email"])
+
+        training_data = router.export_training_data()
+
+        assert len(training_data) == 1
+        assert "query" in training_data[0]
+        assert "candidates" in training_data[0]
+        assert "correct" in training_data[0]
+
+    @pytest.mark.asyncio
+    async def test_adaptive_boost(self, router_config, tool_zoo, session):
+        """Test that frequently co-used tools get boosted."""
+        router = AdaptiveRouter(router_config, tool_zoo)
+
+        # Train: email and slack often used together
+        for _ in range(5):
+            session2 = SessionState()
+            session2.add_message("user", "Notify team")
+            decision = await router.route(session2)
+            router.record_usage(decision, ["gmail.send_email", "slack.send_message"])
+
+        # Now test: when using email, slack should be boosted
+        session.add_message("user", "Send an email")
+        session.record_tool_use("gmail.send_email")
+
+        decision = await router.route(session)
+
+        # Slack should appear due to co-occurrence boost
+        # (depending on scores, this may or may not be in top results)
+        assert len(decision.selected_tools) > 0
+

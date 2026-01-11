@@ -206,7 +206,7 @@ class Router:
         selected: list[str] = []
         scores: dict[str, float] = {}
         server_counts: dict[str, int] = {}
-        max_per_server = 3
+        max_per_server = self.config.max_per_server
 
         for tool_name, score in sorted_tools:
             tool = self.tool_zoo.get_tool(tool_name)
