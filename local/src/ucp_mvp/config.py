@@ -79,7 +79,7 @@ class RouterConfig(BaseModel):
         default=8000, description="Maximum token budget for injected tool schemas"
     )
     max_per_server: int = Field(
-        default=3, description="Maximum tools from a single server (diversity)"
+        default=15, description="Maximum tools from a single server (diversity)"
     )
     exploration_rate: float = Field(
         default=0.1, description="Epsilon for exploration (0.0 to 1.0)"

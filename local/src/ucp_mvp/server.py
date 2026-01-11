@@ -1,7 +1,7 @@
 """
 UCP Server - The Virtual MCP Gateway.
 
-This is the main entry point. UCP presents itself as a single MCP server
+This is main entry point. UCP presents itself as a single MCP server
 to upstream clients (Claude, Cursor, etc.) while internally orchestrating
 a fleet of downstream MCP servers.
 
@@ -24,13 +24,13 @@ from mcp.types import (
     Tool,
 )
 
-from ucp.config import UCPConfig
-from ucp.connection_pool import ConnectionPool, LazyConnectionPool
-from ucp.models import RoutingDecision, SessionState, ToolCallResult
-from ucp.router import AdaptiveRouter, Router
-from ucp.session import SessionManager
-from ucp.tool_zoo import HybridToolZoo, ToolZoo
-from ucp.telemetry import (
+from .config import UCPConfig
+from .connection_pool import ConnectionPool, LazyConnectionPool
+from .models import RoutingDecision, SessionState, ToolCallResult
+from .router import AdaptiveRouter, Router
+from .session import SessionManager
+from .tool_zoo import HybridToolZoo, ToolZoo
+from .telemetry import (
     get_telemetry_store,
     get_jsonl_exporter,
     get_prometheus_metrics,
@@ -103,7 +103,7 @@ class UCPServer:
 
     async def _list_tools(self) -> list[Tool]:
         """
-        Generate the dynamic tool list based on current context.
+        Generate a dynamic tool list based on current context.
 
         This implements the core UCP innovation: context-aware tool injection.
         """
@@ -111,7 +111,7 @@ class UCPServer:
         if not self._current_session:
             self._current_session = self.session_manager.create_session()
 
-        # Generate new request ID for this operation
+        # Generate a new request ID for this operation
         start_time = time.time()
         
         # Route to get relevant tools
@@ -256,7 +256,7 @@ class UCPServer:
 
     async def update_context(self, message: str, role: str = "user") -> None:
         """
-        Update the session context with a new message.
+        Update session context with a new message.
 
         Call this to inform UCP of conversation updates so it can
         adjust tool selection accordingly.
@@ -424,298 +424,3 @@ class UCPServerBuilder:
             server.connection_pool = self._connection_pool
 
         return server
-                self.router.get_learning_stats()
-                if isinstance(self.router, AdaptiveRouter)
-                else {}
-            ),
-            "current_session": (
-                str(self._current_session.session_id)
-                if self._current_session
-                else None
-            ),
-            "last_routing": (
-                {
-                    "selected_tools": self._last_routing.selected_tools,
-                    "reasoning": self._last_routing.reasoning,
-                }
-                if self._last_routing
-                else None
-            ),
-        }
-
-
-class UCPServerBuilder:
-    """
-    Builder pattern for constructing UCP servers with custom components.
-    """
-
-    def __init__(self) -> None:
-        self._config: UCPConfig | None = None
-        self._tool_zoo: ToolZoo | None = None
-        self._router: Router | None = None
-        self._session_manager: SessionManager | None = None
-        self._connection_pool: ConnectionPool | None = None
-
-    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
-        self._config = config
-        return self
-
-    def with_config_file(self, path: str) -> UCPServerBuilder:
-        self._config = UCPConfig.from_yaml(path)
-        return self
-
-    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
-        self._tool_zoo = tool_zoo
-        return self
-
-    def with_router(self, router: Router) -> UCPServerBuilder:
-        self._router = router
-        return self
-
-    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
-        self._session_manager = session_manager
-        return self
-
-    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
-        self._connection_pool = pool
-        return self
-
-    def build(self) -> UCPServer:
-        """Build UCP server with configured components."""
-        config = self._config or UCPConfig.load()
-
-        server = UCPServer(config)
-
-        if self._tool_zoo:
-            server.tool_zoo = self._tool_zoo
-        if self._router:
-            server.router = self._router
-        if self._session_manager:
-            server.session_manager = self._session_manager
-        if self._connection_pool:
-            server.connection_pool = self._connection_pool
-
-        return server
-
-            "router": (
-                self.router.get_learning_stats()
-                if isinstance(self.router, AdaptiveRouter)
-                else {}
-            ),
-            "current_session": (
-                str(self._current_session.session_id)
-                if self._current_session
-                else None
-            ),
-            "last_routing": (
-                {
-                    "selected_tools": self._last_routing.selected_tools,
-                    "reasoning": self._last_routing.reasoning,
-                }
-                if self._last_routing
-                else None
-            ),
-        }
-
-
-class UCPServerBuilder:
-    """
-    Builder pattern for constructing UCP servers with custom components.
-    """
-
-    def __init__(self) -> None:
-        self._config: UCPConfig | None = None
-        self._tool_zoo: ToolZoo | None = None
-        self._router: Router | None = None
-        self._session_manager: SessionManager | None = None
-        self._connection_pool: ConnectionPool | None = None
-
-    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
-        self._config = config
-        return self
-
-    def with_config_file(self, path: str) -> UCPServerBuilder:
-        self._config = UCPConfig.from_yaml(path)
-        return self
-
-    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
-        self._tool_zoo = tool_zoo
-        return self
-
-    def with_router(self, router: Router) -> UCPServerBuilder:
-        self._router = router
-        return self
-
-    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
-        self._session_manager = session_manager
-        return self
-
-    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
-        self._connection_pool = pool
-        return self
-
-    def build(self) -> UCPServer:
-        """Build the UCP server with configured components."""
-        config = self._config or UCPConfig.load()
-
-        server = UCPServer(config)
-
-        if self._tool_zoo:
-            server.tool_zoo = self._tool_zoo
-        if self._router:
-            server.router = self._router
-        if self._session_manager:
-            server.session_manager = self._session_manager
-        if self._connection_pool:
-            server.connection_pool = self._connection_pool
-
-        return server
-
-            "router": (
-                self.router.get_learning_stats()
-                if isinstance(self.router, AdaptiveRouter)
-                else {}
-            ),
-            "current_session": (
-                str(self._current_session.session_id)
-                if self._current_session
-                else None
-            ),
-            "last_routing": (
-                {
-                    "selected_tools": self._last_routing.selected_tools,
-                    "reasoning": self._last_routing.reasoning,
-                }
-                if self._last_routing
-                else None
-            ),
-        }
-
-
-class UCPServerBuilder:
-    """
-    Builder pattern for constructing UCP servers with custom components.
-    """
-
-    def __init__(self) -> None:
-        self._config: UCPConfig | None = None
-        self._tool_zoo: ToolZoo | None = None
-        self._router: Router | None = None
-        self._session_manager: SessionManager | None = None
-        self._connection_pool: ConnectionPool | None = None
-
-    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
-        self._config = config
-        return self
-
-    def with_config_file(self, path: str) -> UCPServerBuilder:
-        self._config = UCPConfig.from_yaml(path)
-        return self
-
-    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
-        self._tool_zoo = tool_zoo
-        return self
-
-    def with_router(self, router: Router) -> UCPServerBuilder:
-        self._router = router
-        return self
-
-    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
-        self._session_manager = session_manager
-        return self
-
-    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
-        self._connection_pool = pool
-        return self
-
-    def build(self) -> UCPServer:
-        """Build the UCP server with configured components."""
-        config = self._config or UCPConfig.load()
-
-        server = UCPServer(config)
-
-        if self._tool_zoo:
-            server.tool_zoo = self._tool_zoo
-        if self._router:
-            server.router = self._router
-        if self._session_manager:
-            server.session_manager = self._session_manager
-        if self._connection_pool:
-            server.connection_pool = self._connection_pool
-
-        return server
-            "router": (
-                self.router.get_learning_stats()
-                if isinstance(self.router, AdaptiveRouter)
-                else {}
-            ),
-            "current_session": (
-                str(self._current_session.session_id)
-                if self._current_session
-                else None
-            ),
-            "last_routing": (
-                {
-                    "selected_tools": self._last_routing.selected_tools,
-                    "reasoning": self._last_routing.reasoning,
-                }
-                if self._last_routing
-                else None
-            ),
-        }
-
-
-class UCPServerBuilder:
-    """
-    Builder pattern for constructing UCP servers with custom components.
-    """
-
-    def __init__(self) -> None:
-        self._config: UCPConfig | None = None
-        self._tool_zoo: ToolZoo | None = None
-        self._router: Router | None = None
-        self._session_manager: SessionManager | None = None
-        self._connection_pool: ConnectionPool | None = None
-
-    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
-        self._config = config
-        return self
-
-    def with_config_file(self, path: str) -> UCPServerBuilder:
-        self._config = UCPConfig.from_yaml(path)
-        return self
-
-    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
-        self._tool_zoo = tool_zoo
-        return self
-
-    def with_router(self, router: Router) -> UCPServerBuilder:
-        self._router = router
-        return self
-
-    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
-        self._session_manager = session_manager
-        return self
-
-    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
-        self._connection_pool = pool
-        return self
-
-    def build(self) -> UCPServer:
-        """Build the UCP server with configured components."""
-        config = self._config or UCPConfig.load()
-
-        server = UCPServer(config)
-
-        if self._tool_zoo:
-            server.tool_zoo = self._tool_zoo
-        if self._router:
-            server.router = self._router
-        if self._session_manager:
-            server.session_manager = self._session_manager
-        if self._connection_pool:
-            server.connection_pool = self._connection_pool
-
-        return server
-
-
