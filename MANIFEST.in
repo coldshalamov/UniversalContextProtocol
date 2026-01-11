@@ -1,0 +1,26 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include src/ucp *.py
+recursive-include src/ucp *.yaml
+recursive-include src/ucp *.json
+recursive-include src/ucp *.txt
+recursive-include docs *.md
+recursive-include docs *.rst
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude * Thumbs.db
+include LICENSE
+include pyproject.toml
+recursive-include src/ucp *.py
+recursive-include src/ucp *.yaml
+recursive-include src/ucp *.json
+recursive-include src/ucp *.txt
+recursive-include docs *.md
+recursive-include docs *.rst
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude * Thumbs.db
+

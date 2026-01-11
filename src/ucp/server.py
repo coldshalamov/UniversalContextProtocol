@@ -7,8 +7,10 @@ a fleet of downstream MCP servers.
 
 Key behaviors:
 - Intercepts tools/list: Returns dynamically selected tools based on context
-- Intercepts tools/call: Routes to the correct downstream server
+- Intercepts tools/call: Routes to correct downstream server
 - Maintains session state for context continuity
+
+Enhanced with error injection for self-correction and graceful degradation.
 """
 
 from __future__ import annotations
@@ -39,6 +41,8 @@ class UCPServer:
 
     Presents as a single MCP server while orchestrating multiple
     downstream servers with intelligent tool selection.
+    
+    Enhanced with error injection for self-correction.
     """
 
     def __init__(self, config: UCPConfig | None = None) -> None:
@@ -79,17 +83,58 @@ class UCPServer:
             Handle tools/call request.
 
             Routes the call to the appropriate downstream server.
+            Enhanced with error injection for self-correction.
             """
             result = await self._call_tool(name, arguments or {})
 
             if result.success:
                 return [TextContent(type="text", text=str(result.result))]
             else:
-                return [TextContent(type="text", text=f"Error: {result.error}")]
+                # Return error message with context for self-correction
+                error_msg = self._format_error_for_self_correction(name, arguments, result.error)
+                return [TextContent(type="text", text=error_msg)]
+
+    def _format_error_for_self_correction(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        error: str,
+    ) -> str:
+        """
+        Format error message to enable self-correction.
+
+        Injects the error into context with helpful information
+        for the AI to potentially retry with different parameters or tools.
+        """
+        # Get tool schema for context
+        tool_schema = self.tool_zoo.get_tool(tool_name)
+        
+        error_parts = [
+            f"Error calling tool '{tool_name}':",
+            f"  {error}",
+        ]
+        
+        # Add tool information for context
+        if tool_schema:
+            error_parts.append(f"  Tool description: {tool_schema.description}")
+            if tool_schema.input_schema and tool_schema.input_schema.get("properties"):
+                params = list(tool_schema.input_schema["properties"].keys())
+                error_parts.append(f"  Available parameters: {', '.join(params)}")
+        
+        # Add what was attempted
+        if arguments:
+            error_parts.append(f"  Attempted with arguments: {arguments}")
+        
+        # Suggest potential fixes
+        error_parts.append("  Please try again with:")
+        error_parts.append("    - Different or corrected arguments")
+        error_parts.append("    - A different tool if this one is unavailable")
+        
+        return "\n".join(error_parts)
 
     async def _list_tools(self) -> list[Tool]:
         """
-        Generate the dynamic tool list based on current context.
+        Generate a dynamic tool list based on the current context.
 
         This implements the core UCP innovation: context-aware tool injection.
         """
@@ -124,6 +169,8 @@ class UCPServer:
     async def _call_tool(self, name: str, arguments: dict[str, Any]) -> ToolCallResult:
         """
         Execute a tool call by routing to the appropriate server.
+        
+        Enhanced with error injection for self-correction.
         """
         import time
         start_time = time.time()
@@ -162,6 +209,63 @@ class UCPServer:
                 execution_time_ms=execution_time,
             )
 
+        except ValueError as e:
+            # Tool not found - provide helpful error
+            execution_time = (time.time() - start_time) * 1000
+            
+            error_msg = f"Tool '{name}' not found. Available tools: {[t.name for t in self.tool_zoo.all_tools[:10]]}"
+            
+            if self._current_session:
+                self.session_manager.log_tool_usage(
+                    self._current_session.session_id,
+                    name,
+                    success=False,
+                    execution_time_ms=execution_time,
+                    error=str(e),
+                )
+
+            logger.error(
+                "tool_not_found",
+                tool=name,
+                error=str(e),
+            )
+
+            return ToolCallResult(
+                tool_name=name,
+                success=False,
+                error=error_msg,
+                execution_time_ms=execution_time,
+            )
+
+        except RuntimeError as e:
+            # Server not connected or circuit breaker open
+            execution_time = (time.time() - start_time) * 1000
+            
+            if self._current_session:
+                self.session_manager.log_tool_usage(
+                    self._current_session.session_id,
+                    name,
+                    success=False,
+                    execution_time_ms=execution_time,
+                    error=str(e),
+                )
+
+            logger.error(
+                "tool_call_server_error",
+                tool=name,
+                error=str(e),
+            )
+
+            # Inject error with context for self-correction
+            formatted_error = self._format_error_for_self_correction(name, arguments, str(e))
+            
+            return ToolCallResult(
+                tool_name=name,
+                success=False,
+                error=formatted_error,
+                execution_time_ms=execution_time,
+            )
+
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
 
@@ -180,10 +284,13 @@ class UCPServer:
                 error=str(e),
             )
 
+            # Inject error with context for self-correction
+            formatted_error = self._format_error_for_self_correction(name, arguments, str(e))
+            
             return ToolCallResult(
                 tool_name=name,
                 success=False,
-                error=str(e),
+                error=formatted_error,
                 execution_time_ms=execution_time,
             )
 
@@ -297,57 +404,3 @@ class UCPServer:
                 else None
             ),
         }
-
-
-class UCPServerBuilder:
-    """
-    Builder pattern for constructing UCP servers with custom components.
-    """
-
-    def __init__(self) -> None:
-        self._config: UCPConfig | None = None
-        self._tool_zoo: ToolZoo | None = None
-        self._router: Router | None = None
-        self._session_manager: SessionManager | None = None
-        self._connection_pool: ConnectionPool | None = None
-
-    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
-        self._config = config
-        return self
-
-    def with_config_file(self, path: str) -> UCPServerBuilder:
-        self._config = UCPConfig.from_yaml(path)
-        return self
-
-    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
-        self._tool_zoo = tool_zoo
-        return self
-
-    def with_router(self, router: Router) -> UCPServerBuilder:
-        self._router = router
-        return self
-
-    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
-        self._session_manager = session_manager
-        return self
-
-    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
-        self._connection_pool = pool
-        return self
-
-    def build(self) -> UCPServer:
-        """Build the UCP server with configured components."""
-        config = self._config or UCPConfig.load()
-
-        server = UCPServer(config)
-
-        if self._tool_zoo:
-            server.tool_zoo = self._tool_zoo
-        if self._router:
-            server.router = self._router
-        if self._session_manager:
-            server.session_manager = self._session_manager
-        if self._connection_pool:
-            server.connection_pool = self._connection_pool
-
-        return server

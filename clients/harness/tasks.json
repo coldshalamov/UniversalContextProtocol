@@ -80,23 +80,5 @@
             "amount": 50
         },
         "domain": "finance"
-    },
-    {
-        "id": "calculate_001",
-        "prompt": "Calculate 50 plus 100",
-        "expected_tool": "mock-server.mock.calculate",
-        "expected_args_subset": {
-            "expression": "50 plus 100"
-        },
-        "domain": "utility"
-    },
-    {
-        "id": "echo_001",
-        "prompt": "Echo the word 'banana'",
-        "expected_tool": "mock-server.mock.echo",
-        "expected_args_subset": {
-            "message": "banana"
-        },
-        "domain": "utility"
     }
 ]

@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 
@@ -40,6 +40,10 @@ class SessionManager:
         self.config = config
         self._sessions: dict[UUID, SessionState] = {}
         self._db: sqlite3.Connection | None = None
+        
+        # Telemetry integration
+        self._current_trace_id: str = ""
+        self._current_request_id: UUID = uuid4()
 
         if config.persistence == "sqlite":
             self._init_sqlite()
@@ -251,6 +255,19 @@ class SessionManager:
             ),
         )
         self._db.commit()
+        
+        # Export to JSONL
+        self._export_telemetry_to_jsonl({
+            "event_type": "tool_usage",
+            "trace_id": self._current_trace_id,
+            "session_id": str(session_id),
+            "request_id": str(self._current_request_id),
+            "tool_name": tool_name,
+            "success": success,
+            "execution_time_ms": execution_time_ms,
+            "error": error,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
     def get_tool_usage_stats(self, session_id: UUID | None = None) -> dict[str, Any]:
         """Get tool usage statistics."""
@@ -368,8 +385,77 @@ class SessionManager:
 
         return summary
 
+    def _export_telemetry_to_jsonl(self, event_data: dict[str, Any]) -> None:
+        """Export telemetry event to JSONL file."""
+        try:
+            from ucp.telemetry import get_jsonl_exporter
+            
+            exporter = get_jsonl_exporter()
+            import json
+            with open(exporter._get_log_file(), "a", encoding="utf-8") as f:
+                f.write(json.dumps(event_data) + "\n")
+        except Exception as e:
+            logger.warning("telemetry_export_failed", error=str(e))
+    
+    def set_trace_context(self, trace_id: str = "", request_id: UUID | None = None) -> None:
+        """Set the current trace and request context for telemetry."""
+        if trace_id:
+            self._current_trace_id = trace_id
+        if request_id:
+            self._current_request_id = request_id
+    
+    def get_trace_context(self) -> dict[str, str]:
+        """Get the current trace context."""
+        return {
+            "trace_id": self._current_trace_id,
+            "request_id": str(self._current_request_id),
+        }
+    
     def close(self) -> None:
         """Close database connection."""
         if self._db:
             self._db.close()
             self._db = None
+        session.messages.insert(0, session.messages.pop())
+
+        self.save_session(session)
+        logger.info(
+            "messages_archived",
+            session_id=str(session.session_id),
+            archived_count=len(to_archive),
+        )
+
+        return summary
+
+    def _export_telemetry_to_jsonl(self, event_data: dict[str, Any]) -> None:
+        """Export telemetry event to JSONL file."""
+        try:
+            from ucp.telemetry import get_jsonl_exporter
+            
+            exporter = get_jsonl_exporter()
+            import json
+            with open(exporter._get_log_file(), "a", encoding="utf-8") as f:
+                f.write(json.dumps(event_data) + "\n")
+        except Exception as e:
+            logger.warning("telemetry_export_failed", error=str(e))
+    
+    def set_trace_context(self, trace_id: str = "", request_id: UUID | None = None) -> None:
+        """Set the current trace and request context for telemetry."""
+        if trace_id:
+            self._current_trace_id = trace_id
+        if request_id:
+            self._current_request_id = request_id
+    
+    def get_trace_context(self) -> dict[str, str]:
+        """Get the current trace context."""
+        return {
+            "trace_id": self._current_trace_id,
+            "request_id": str(self._current_request_id),
+        }
+    
+    def close(self) -> None:
+        """Close database connection."""
+        if self._db:
+            self._db.close()
+            self._db = None
+

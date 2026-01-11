@@ -1,0 +1,448 @@
+{
+  "version": "0.1",
+  "generated_at": "2026-01-11T03:54:31.804430",
+  "tasks": [
+    {
+      "id": "email_send_001",
+      "prompt": "Send an email to john@example.com about the project update",
+      "expected_tool": "mock-server.mock.send_email",
+      "expected_args_subset": {
+        "to": "john@example.com"
+      },
+      "domain": "email"
+    },
+    {
+      "id": "email_read_001",
+      "prompt": "Check my inbox for new messages",
+      "expected_tool": "mock-server.mock.read_inbox",
+      "expected_args_subset": {},
+      "domain": "email"
+    },
+    {
+      "id": "code_pr_001",
+      "prompt": "Create a pull request for the feature branch",
+      "expected_tool": "mock-server.mock.create_pr",
+      "expected_args_subset": {
+        "branch": "feature"
+      },
+      "domain": "code"
+    },
+    {
+      "id": "code_commit_001",
+      "prompt": "List the recent commits on main branch",
+      "expected_tool": "mock-server.mock.list_commits",
+      "expected_args_subset": {
+        "branch": "main"
+      },
+      "domain": "code"
+    },
+    {
+      "id": "calendar_schedule_001",
+      "prompt": "Schedule a meeting with the team for tomorrow at 2pm",
+      "expected_tool": "mock-server.mock.create_event",
+      "expected_args_subset": {},
+      "domain": "calendar"
+    },
+    {
+      "id": "slack_notify_001",
+      "prompt": "Send a Slack message to the engineering channel about the outage",
+      "expected_tool": "mock-server.mock.send_slack",
+      "expected_args_subset": {
+        "channel": "engineering"
+      },
+      "domain": "communication"
+    },
+    {
+      "id": "file_upload_001",
+      "prompt": "Upload the quarterly report to Google Drive",
+      "expected_tool": "mock-server.mock.upload_file",
+      "expected_args_subset": {},
+      "domain": "files"
+    },
+    {
+      "id": "search_web_001",
+      "prompt": "Search the web for Python async best practices",
+      "expected_tool": "mock-server.mock.web_search",
+      "expected_args_subset": {
+        "query": "Python async"
+      },
+      "domain": "web"
+    },
+    {
+      "id": "database_query_001",
+      "prompt": "Query the users table for active accounts",
+      "expected_tool": "mock-server.mock.sql_query",
+      "expected_args_subset": {},
+      "domain": "database"
+    },
+    {
+      "id": "payment_charge_001",
+      "prompt": "Process a $50 payment for the subscription",
+      "expected_tool": "mock-server.mock.stripe_charge",
+      "expected_args_subset": {
+        "amount": 50
+      },
+      "domain": "finance"
+    }
+  ],
+  "baseline": {
+    "config": {
+      "top_k": 100,
+      "strategy": "baseline",
+      "max_tools": 100,
+      "max_per_server": 28
+    },
+    "results": [
+      {
+        "task_id": "email_send_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_email",
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_slack"
+        ],
+        "expected_tool": "mock-server.mock.send_email",
+        "expected_tool_found": true,
+        "selection_time_ms": 63.521623611450195,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "email_read_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_email",
+          "mock-server.mock.send_slack"
+        ],
+        "expected_tool": "mock-server.mock.read_inbox",
+        "expected_tool_found": true,
+        "selection_time_ms": 21.215200424194336,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "code_pr_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_email"
+        ],
+        "expected_tool": "mock-server.mock.create_pr",
+        "expected_tool_found": true,
+        "selection_time_ms": 22.42875099182129,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "code_commit_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.list_commits",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.list_commits",
+        "expected_tool_found": true,
+        "selection_time_ms": 20.482540130615234,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": true
+      },
+      {
+        "task_id": "calendar_schedule_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.create_event",
+        "expected_tool_found": false,
+        "selection_time_ms": 23.736238479614258,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "slack_notify_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits"
+        ],
+        "expected_tool": "mock-server.mock.send_slack",
+        "expected_tool_found": true,
+        "selection_time_ms": 26.331186294555664,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 29,
+        "success": true
+      },
+      {
+        "task_id": "file_upload_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.upload_file",
+        "expected_tool_found": false,
+        "selection_time_ms": 26.288270950317383,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "search_web_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.list_commits",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.web_search",
+        "expected_tool_found": false,
+        "selection_time_ms": 27.530908584594727,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "database_query_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.upload_file",
+          "mock-server.mock.create_event"
+        ],
+        "expected_tool": "mock-server.mock.sql_query",
+        "expected_tool_found": false,
+        "selection_time_ms": 26.72886848449707,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "payment_charge_001",
+        "mode": "baseline",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.upload_file",
+          "mock-server.mock.stripe_charge"
+        ],
+        "expected_tool": "mock-server.mock.stripe_charge",
+        "expected_tool_found": true,
+        "selection_time_ms": 27.024507522583008,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 27,
+        "success": true
+      }
+    ],
+    "metrics": {
+      "avg_tools_selected": 3.0,
+      "recall": 0.6,
+      "precision": 0.2,
+      "avg_selection_time": 28.528809547424316,
+      "avg_execution_time": 0.0
+    }
+  },
+  "ucp": {
+    "config": {
+      "top_k": 10,
+      "strategy": "sota",
+      "max_tools": 5,
+      "max_per_server": 3
+    },
+    "results": [
+      {
+        "task_id": "email_send_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_email",
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_slack"
+        ],
+        "expected_tool": "mock-server.mock.send_email",
+        "expected_tool_found": true,
+        "selection_time_ms": 48.04563522338867,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "email_read_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_email",
+          "mock-server.mock.send_slack"
+        ],
+        "expected_tool": "mock-server.mock.read_inbox",
+        "expected_tool_found": true,
+        "selection_time_ms": 22.493839263916016,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "code_pr_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.read_inbox",
+          "mock-server.mock.send_email"
+        ],
+        "expected_tool": "mock-server.mock.create_pr",
+        "expected_tool_found": true,
+        "selection_time_ms": 21.772384643554688,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 28,
+        "success": true
+      },
+      {
+        "task_id": "code_commit_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.list_commits",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.list_commits",
+        "expected_tool_found": true,
+        "selection_time_ms": 21.34847640991211,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": true
+      },
+      {
+        "task_id": "calendar_schedule_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.create_event",
+        "expected_tool_found": false,
+        "selection_time_ms": 22.54033088684082,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "slack_notify_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits"
+        ],
+        "expected_tool": "mock-server.mock.send_slack",
+        "expected_tool_found": true,
+        "selection_time_ms": 23.833751678466797,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 29,
+        "success": true
+      },
+      {
+        "task_id": "file_upload_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.create_pr",
+          "mock-server.mock.list_commits",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.upload_file",
+        "expected_tool_found": false,
+        "selection_time_ms": 25.551557540893555,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "search_web_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.list_commits",
+          "mock-server.mock.create_pr",
+          "mock-server.mock.git_pull"
+        ],
+        "expected_tool": "mock-server.mock.web_search",
+        "expected_tool_found": false,
+        "selection_time_ms": 26.355504989624023,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "database_query_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.upload_file",
+          "mock-server.mock.create_event"
+        ],
+        "expected_tool": "mock-server.mock.sql_query",
+        "expected_tool_found": false,
+        "selection_time_ms": 25.30384063720703,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 26,
+        "success": false
+      },
+      {
+        "task_id": "payment_charge_001",
+        "mode": "ucp",
+        "tools_selected": 3,
+        "selected_tool_names": [
+          "mock-server.mock.send_slack",
+          "mock-server.mock.upload_file",
+          "mock-server.mock.stripe_charge"
+        ],
+        "expected_tool": "mock-server.mock.stripe_charge",
+        "expected_tool_found": true,
+        "selection_time_ms": 22.616147994995117,
+        "execution_time_ms": 0.0,
+        "estimated_tokens": 27,
+        "success": true
+      }
+    ],
+    "metrics": {
+      "avg_tools_selected": 3.0,
+      "recall": 0.6,
+      "precision": 0.2,
+      "avg_selection_time": 25.986146926879883,
+      "avg_execution_time": 0.0
+    }
+  },
+  "context_reduction": {
+    "percentage": 0.0,
+    "baseline_avg": 3.0,
+    "ucp_avg": 3.0,
+    "target_80_percent": false
+  }
+}

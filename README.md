@@ -83,6 +83,43 @@ Instead of `ListTools() -> [All 500 Tools]`, UCP implements `ListTools(context) 
 - **LangGraph Orchestration**: Complex workflow support
 - **Centralized Telemetry**: Enterprise observability
 
+## Benchmark Results
+
+UCP has been tested with a baseline benchmark comparing tool selection performance between traditional MCP (exposing all tools) and UCP (intelligent tool filtering).
+
+### Performance Metrics (v0.1)
+
+| Metric | Baseline (All Tools) | UCP (Filtered) | Improvement |
+|---|---|---|---|
+| Avg Tools Selected | 3.00 | 3.00 | 0.0% |
+| Recall@k | 60.0% | 60.0% | 0.0% |
+| Precision@k | 20.0% | 20.0% | 0.0% |
+| Selection Time (ms) | 28.53 | 25.99 | 8.9% faster |
+| Execution Time (ms) | 0.00 | 0.00 | N/A |
+
+### Context Reduction
+
+- **Baseline Average:** 3.00 tools
+- **UCP Average:** 3.00 tools
+- **Context Reduction:** 0.0%
+- **Target:** 80%+
+
+**Note:** The current benchmark did not achieve the 80%+ context reduction target due to a hardcoded `max_per_server = 3` limit in the router's reranking logic. This limitation affects single-server deployments. See [`docs/milestone_1_5_baseline_benchmark.md`](docs/milestone_1_5_baseline_benchmark.md) for detailed analysis.
+
+### Test Coverage
+
+The benchmark tested 10 diverse tasks across multiple domains:
+- Email (send, read)
+- Code (PR creation, commit listing)
+- Calendar (event scheduling)
+- Communication (Slack messaging)
+- Files (upload)
+- Web (search)
+- Database (SQL queries)
+- Finance (payment processing)
+
+For complete benchmark details, see [`clients/reports/baseline_benchmark_v0.1.json`](clients/reports/baseline_benchmark_v0.1.json).
+
 ## Quick Start
 
 ### Local MVP (Available Now)
@@ -291,6 +328,85 @@ mypy src/
 ruff check src/
 ```
 
+## Troubleshooting
+
+### Installation Issues
+
+**Problem:** `pip install ucp-mvp` fails
+
+**Solutions:**
+1. Update pip: `pip install --upgrade pip`
+2. Use virtual environment: `python -m venv venv && source venv/bin/activate`
+3. Install from source instead
+
+### Configuration Issues
+
+**Problem:** `ucp init-config` fails
+
+**Solutions:**
+1. Check write permissions: `ls -la ~/.ucp` (Linux/macOS) or check `C:\Users\<username>\.ucp` (Windows)
+2. Create directory manually: `mkdir -p ~/.ucp` (Linux/macOS) or manually create folder on Windows
+3. Check disk space
+
+### Connection Issues
+
+**Problem:** Downstream servers not connecting
+
+**Solutions:**
+1. Verify server command is correct in config
+2. Check environment variables are set properly
+3. Test server independently: run the MCP server command directly
+4. Check firewall settings
+5. Review logs: `~/.ucp/logs/ucp.log` or `C:\Users\<username>\.ucp\logs\ucp.log`
+
+### Tool Indexing Issues
+
+**Problem:** `ucp index` returns no tools
+
+**Solutions:**
+1. Verify downstream servers are configured in `ucp_config.yaml`
+2. Check downstream servers are accessible
+3. Run with verbose logging: `ucp index --log-level DEBUG`
+4. Check ChromaDB installation: `pip show chromadb`
+
+### Performance Issues
+
+**Problem:** UCP is slow
+
+**Solutions:**
+1. Reduce `top_k` in configuration (default is 5, try 3)
+2. Use smaller embedding model: `all-MiniLM-L6-v2` (already default)
+3. Enable caching in configuration
+4. Check system resources (CPU, memory usage)
+
+### Claude Desktop Integration Issues
+
+**Problem:** Claude Desktop doesn't show UCP tools
+
+**Solutions:**
+1. Verify UCP server is running: `ucp status`
+2. Check Claude Desktop config path is correct
+3. Restart Claude Desktop after config changes
+4. Check Claude Desktop logs for errors
+5. Test with debug logging: `ucp serve --log-level DEBUG`
+
+### Common Errors
+
+| Error | Cause | Solution |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'ucp_mvp'` | Package not installed | Run `pip install ucp-mvp` |
+| `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
+| `Connection refused` | Downstream server not running | Start the MCP server or check configuration |
+| `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
+| `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
+
+### Getting Help
+
+For more detailed troubleshooting steps, see:
+- **[docs/debugging_playbook.md](docs/debugging_playbook.md)** - Comprehensive debugging guide
+- **[local/docs/getting_started.md](local/docs/getting_started.md)** - Detailed setup instructions
+- **GitHub Issues** - Report bugs and get community help
+
 ## Documentation
 
 - **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** - Complete documentation navigation guide
@@ -298,6 +414,7 @@ ruff check src/
 - **[local/README.md](local/README.md)** - Local MVP documentation
 - **[cloud/README.md](cloud/README.md)** - Cloud version documentation
 - **[shared/README.md](shared/README.md)** - Shared components documentation
+- **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
 
 ## License
 
@@ -306,3 +423,59 @@ MIT License
 ---
 
 **UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+
+### Performance Issues
+
+**Problem:** UCP is slow
+
+**Solutions:**
+1. Reduce `top_k` in configuration (default is 5, try 3)
+2. Use smaller embedding model: `all-MiniLM-L6-v2` (already default)
+3. Enable caching in configuration
+4. Check system resources (CPU, memory usage)
+
+### Claude Desktop Integration Issues
+
+**Problem:** Claude Desktop doesn't show UCP tools
+
+**Solutions:**
+1. Verify UCP server is running: `ucp status`
+2. Check Claude Desktop config path is correct
+3. Restart Claude Desktop after config changes
+4. Check Claude Desktop logs for errors
+5. Test with debug logging: `ucp serve --log-level DEBUG`
+
+### Common Errors
+
+| Error | Cause | Solution |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'ucp_mvp'` | Package not installed | Run `pip install ucp-mvp` |
+| `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
+| `Connection refused` | Downstream server not running | Start the MCP server or check configuration |
+| `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
+| `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
+
+### Getting Help
+
+For more detailed troubleshooting steps, see:
+- **[docs/debugging_playbook.md](docs/debugging_playbook.md)** - Comprehensive debugging guide
+- **[local/docs/getting_started.md](local/docs/getting_started.md)** - Detailed setup instructions
+- **GitHub Issues** - Report bugs and get community help
+
+## Documentation
+
+- **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** - Complete documentation navigation guide
+- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Development guidelines for both versions
+- **[local/README.md](local/README.md)** - Local MVP documentation
+- **[cloud/README.md](cloud/README.md)** - Cloud version documentation
+- **[shared/README.md](shared/README.md)** - Shared components documentation
+- **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
+
+## License
+
+MIT License
+
+---
+
+**UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+

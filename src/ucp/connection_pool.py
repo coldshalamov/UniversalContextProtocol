@@ -6,6 +6,8 @@ Manages persistent connections to multiple MCP servers, handling:
 - SSE/HTTP connections
 - Connection lifecycle and health checks
 - Tool discovery and caching
+- Circuit breaker pattern for fault tolerance
+- Retry logic with exponential backoff
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Any
+from enum import Enum
 
 import structlog
 from mcp import ClientSession, StdioServerParameters
@@ -25,12 +28,125 @@ from ucp.models import DownstreamServer, ServerStatus, ToolSchema
 logger = structlog.get_logger(__name__)
 
 
+class CircuitBreakerState(str, Enum):
+    """Circuit breaker states."""
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"      # Circuit is open, rejecting requests
+    HALF_OPEN = "half_open"  # Testing if service has recovered
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern for fault tolerance.
+
+    Prevents cascading failures by temporarily stopping requests
+    to a failing server after a threshold of consecutive failures.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        timeout_seconds: float = 60.0,
+        half_open_max_calls: int = 3,
+    ):
+        self.failure_threshold = failure_threshold
+        self.timeout_seconds = timeout_seconds
+        self.half_open_max_calls = half_open_max_calls
+
+        self.state = CircuitBreakerState.CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time: datetime | None = None
+        self.half_open_calls = 0
+
+    def record_success(self) -> None:
+        """Record a successful operation."""
+        if self.state == CircuitBreakerState.HALF_OPEN:
+            self.half_open_calls += 1
+            if self.half_open_calls >= self.half_open_max_calls:
+                # Service has recovered, close circuit
+                self.state = CircuitBreakerState.CLOSED
+                self.failure_count = 0
+                self.half_open_calls = 0
+                logger.info(
+                    "circuit_breaker_closed",
+                    reason="Service recovered",
+                    half_open_calls=self.half_open_calls,
+                )
+        elif self.state == CircuitBreakerState.CLOSED:
+            self.failure_count = 0
+
+    def record_failure(self) -> None:
+        """Record a failed operation."""
+        self.failure_count += 1
+        self.last_failure_time = datetime.utcnow()
+
+        if self.state == CircuitBreakerState.HALF_OPEN:
+            # Failed during half-open test, reopen circuit
+            self.state = CircuitBreakerState.OPEN
+            self.half_open_calls = 0
+            logger.warning(
+                "circuit_breaker_reopened",
+                reason="Half-open test failed",
+                failure_count=self.failure_count,
+            )
+        elif self.failure_count >= self.failure_threshold:
+            # Threshold reached, open circuit
+            self.state = CircuitBreakerState.OPEN
+            logger.warning(
+                "circuit_breaker_opened",
+                failure_count=self.failure_count,
+                threshold=self.failure_threshold,
+            )
+
+    def can_attempt(self) -> bool:
+        """
+        Check if a request can be attempted.
+
+        Returns True if circuit is closed or half-open,
+        or if timeout has elapsed for open circuit.
+        """
+        if self.state == CircuitBreakerState.CLOSED:
+            return True
+
+        if self.state == CircuitBreakerState.HALF_OPEN:
+            return self.half_open_calls < self.half_open_max_calls
+
+        # Circuit is open - check if timeout has elapsed
+        if self.last_failure_time:
+            elapsed = (datetime.utcnow() - self.last_failure_time).total_seconds()
+            if elapsed >= self.timeout_seconds:
+                # Timeout elapsed, transition to half-open
+                self.state = CircuitBreakerState.HALF_OPEN
+                self.half_open_calls = 0
+                logger.info(
+                    "circuit_breaker_half_open",
+                    elapsed_seconds=elapsed,
+                    timeout=self.timeout_seconds,
+                )
+                return True
+
+        return False
+
+    def get_state(self) -> dict[str, Any]:
+        """Get current circuit breaker state for monitoring."""
+        return {
+            "state": self.state.value,
+            "failure_count": self.failure_count,
+            "success_count": self.success_count,
+            "last_failure_time": self.last_failure_time.isoformat() if self.last_failure_time else None,
+            "can_attempt": self.can_attempt(),
+        }
+
+
 class ConnectionPool:
     """
     Manages connections to all downstream MCP servers.
 
     The pool maintains a registry of connected servers, their tools,
     and handles the routing of tool calls to the correct server.
+
+    Enhanced with circuit breaker pattern and retry logic for fault tolerance.
     """
 
     def __init__(self, config: UCPConfig) -> None:
@@ -41,6 +157,11 @@ class ConnectionPool:
         self._stdio_stop_events: dict[str, asyncio.Event] = {}
         self._tool_to_server: dict[str, str] = {}  # tool_name -> server_name   
         self._lock = asyncio.Lock()
+        # Circuit breakers for each server
+        self._circuit_breakers: dict[str, CircuitBreaker] = {}
+        # Retry configuration
+        self._max_retries = 3
+        self._retry_delay_base = 1.0  # seconds
 
     @property
     def all_tools(self) -> list[ToolSchema]:
@@ -51,7 +172,7 @@ class ConnectionPool:
         return tools
 
     def get_tool_server(self, tool_name: str) -> str | None:
-        """Get the server name that owns a specific tool."""
+        """Get server name that owns a specific tool."""
         return self._tool_to_server.get(tool_name)
 
     async def connect_all(self) -> None:
@@ -78,6 +199,8 @@ class ConnectionPool:
             transport_type=server_config.transport,
         )
         self._servers[server_config.name] = server
+        # Initialize circuit breaker for this server
+        self._circuit_breakers[server_config.name] = CircuitBreaker()
 
         try:
             if server_config.transport == "stdio":
@@ -186,7 +309,7 @@ class ConnectionPool:
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
-        Route a tool call to the appropriate downstream server.
+        Route a tool call to the appropriate downstream server with retry logic.
 
         Args:
             tool_name: Fully qualified tool name (server.tool) or just tool name
@@ -197,7 +320,7 @@ class ConnectionPool:
 
         Raises:
             ValueError: If the tool is not found
-            RuntimeError: If the server is not connected
+            RuntimeError: If the server is not connected or circuit is open
         """
         requested_name = tool_name
 
@@ -229,29 +352,150 @@ class ConnectionPool:
             raise ValueError(f"Tool not found: {requested_name}")
 
         server = self._servers.get(server_name)
-        if not server or server.status != ServerStatus.CONNECTED:
-            raise RuntimeError(f"Server not connected: {server_name}")
+        if not server:
+            raise RuntimeError(f"Server not found: {server_name}")
 
-        session = self._sessions.get(server_name)
-        if not session:
-            raise RuntimeError(f"No session for server: {server_name}")
+        # Check circuit breaker state
+        circuit_breaker = self._circuit_breakers.get(server_name)
+        if circuit_breaker and not circuit_breaker.can_attempt():
+            raise RuntimeError(
+                f"Circuit breaker is open for server {server_name}. "
+                f"Too many consecutive failures. Will retry after timeout."
+            )
 
-        # If the tool name was fully-qualified, strip exactly the server prefix.
-        # (Downstream tools are allowed to contain dots.)
-        if downstream_tool_name is None:
-            prefix = f"{server_name}."
-            downstream_tool_name = tool_name[len(prefix):] if tool_name.startswith(prefix) else tool_name
+        # Execute with retry logic
+        last_exception = None
+        for attempt in range(self._max_retries):
+            try:
+                # Check server status before attempting
+                if server.status != ServerStatus.CONNECTED:
+                    # Try to reconnect
+                    logger.info(
+                        "server_not_connected_attempting_reconnect",
+                        server=server_name,
+                        attempt=attempt + 1,
+                    )
+                    await self._reconnect_server(server_name)
+                    if server.status != ServerStatus.CONNECTED:
+                        raise RuntimeError(f"Server not connected: {server_name}")
 
-        logger.debug(
-            "routing_tool_call",
-            tool=downstream_tool_name,
-            server=server_name,
-            arguments=arguments,
-        )
+                session = self._sessions.get(server_name)
+                if not session:
+                    raise RuntimeError(f"No session for server: {server_name}")
 
-        # Execute the tool call
-        result = await session.call_tool(downstream_tool_name, arguments)
-        return result
+                # If the tool name was fully-qualified, strip exactly the server prefix.
+                # (Downstream tools are allowed to contain dots.)
+                if downstream_tool_name is None:
+                    prefix = f"{server_name}."
+                    downstream_tool_name = tool_name[len(prefix):] if tool_name.startswith(prefix) else tool_name
+
+                logger.debug(
+                    "routing_tool_call",
+                    tool=downstream_tool_name,
+                    server=server_name,
+                    arguments=arguments,
+                    attempt=attempt + 1,
+                )
+
+                # Execute the tool call with timeout
+                result = await asyncio.wait_for(
+                    session.call_tool(downstream_tool_name, arguments),
+                    timeout=30.0  # 30 second timeout
+                )
+
+                # Record success in circuit breaker
+                if circuit_breaker:
+                    circuit_breaker.record_success()
+
+                return result
+
+            except asyncio.TimeoutError as e:
+                last_exception = e
+                logger.warning(
+                    "tool_call_timeout",
+                    tool=tool_name,
+                    server=server_name,
+                    attempt=attempt + 1,
+                )
+                # Mark server as potentially unhealthy
+                server.status = ServerStatus.ERROR
+                server.error_message = f"Tool call timeout: {str(e)}"
+                if circuit_breaker:
+                    circuit_breaker.record_failure()
+
+            except Exception as e:
+                last_exception = e
+                logger.warning(
+                    "tool_call_failed",
+                    tool=tool_name,
+                    server=server_name,
+                    error=str(e),
+                    attempt=attempt + 1,
+                )
+                # Mark server as unhealthy
+                server.status = ServerStatus.ERROR
+                server.error_message = str(e)
+                if circuit_breaker:
+                    circuit_breaker.record_failure()
+
+            # Exponential backoff before retry
+            if attempt < self._max_retries - 1:
+                delay = self._retry_delay_base * (2 ** attempt)
+                logger.info(
+                    "retrying_tool_call",
+                    tool=tool_name,
+                    delay=delay,
+                    next_attempt=attempt + 2,
+                )
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        raise RuntimeError(
+            f"Tool call failed after {self._max_retries} attempts: {requested_name}"
+        ) from last_exception
+
+    async def _reconnect_server(self, server_name: str) -> None:
+        """Attempt to reconnect to a disconnected server."""
+        server = self._servers.get(server_name)
+        if not server:
+            return
+
+        # Find the server config
+        server_config = None
+        for config in self.config.downstream_servers:
+            if config.name == server_name:
+                server_config = config
+                break
+
+        if not server_config:
+            logger.error("server_config_not_found", server=server_name)
+            return
+
+        # Clean up existing connection
+        if server_name in self._stdio_stop_events:
+            self._stdio_stop_events[server_name].set()
+
+        if server_name in self._stdio_tasks:
+            try:
+                await self._stdio_tasks[server_name]
+            except Exception:
+                pass
+            finally:
+                self._stdio_tasks.pop(server_name, None)
+
+        # Attempt reconnection
+        server.status = ServerStatus.CONNECTING
+        server.error_message = None
+        try:
+            if server_config.transport == "stdio":
+                await self._connect_stdio(server_config, server)
+            server.status = ServerStatus.CONNECTED
+            server.last_connected = datetime.utcnow()
+            logger.info("server_reconnected", server=server_name)
+        except Exception as e:
+            server.status = ServerStatus.ERROR
+            server.error_message = str(e)
+            logger.error("server_reconnection_failed", server=server_name, error=str(e))
 
     async def disconnect_all(self) -> None:
         """Disconnect from all servers."""
@@ -281,19 +525,24 @@ class ConnectionPool:
                 self._stdio_stop_events.pop(server_name, None)
 
         self._tool_to_server.clear()
+        self._circuit_breakers.clear()
         logger.info("connection_pool_shutdown")
 
     def get_server_status(self) -> dict[str, Any]:
         """Get status of all servers for debugging."""
-        return {
-            name: {
+        status = {}
+        for name, server in self._servers.items():
+            server_info = {
                 "status": server.status.value,
                 "tool_count": len(server.tools),
                 "last_connected": server.last_connected.isoformat() if server.last_connected else None,
                 "error": server.error_message,
             }
-            for name, server in self._servers.items()
-        }
+            # Add circuit breaker state if available
+            if name in self._circuit_breakers:
+                server_info["circuit_breaker"] = self._circuit_breakers[name].get_state()
+            status[name] = server_info
+        return status
 
 
 class LazyConnectionPool(ConnectionPool):

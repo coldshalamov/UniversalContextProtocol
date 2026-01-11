@@ -1,5 +1,9 @@
 import asyncio
 import sys
+import os
+
+# Change to project directory
+os.chdir('D:/GitHub/Telomere/UniversalContextProtocol')
 sys.path.insert(0, 'D:/GitHub/Telomere/UniversalContextProtocol/local/src')
 sys.path.insert(0, 'D:/GitHub/Telomere/UniversalContextProtocol/shared/src')
 
@@ -24,7 +28,7 @@ async def main():
     
     # Create tool zoo
     tool_zoo = HybridToolZoo(config.tool_zoo)
-    await tool_zoo.initialize()
+    tool_zoo.initialize()
     
     # Index tools from connection pool
     tools = pool.all_tools

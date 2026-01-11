@@ -13,6 +13,7 @@ Key behaviors:
 
 from __future__ import annotations
 
+import time
 from typing import Any, Sequence
 
 import structlog
@@ -29,6 +30,14 @@ from ucp.models import RoutingDecision, SessionState, ToolCallResult
 from ucp.router import AdaptiveRouter, Router
 from ucp.session import SessionManager
 from ucp.tool_zoo import HybridToolZoo, ToolZoo
+from ucp.telemetry import (
+    get_telemetry_store,
+    get_jsonl_exporter,
+    get_prometheus_metrics,
+    RoutingEvent,
+    ToolCallEvent,
+    hash_query,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +58,11 @@ class UCPServer:
         self.router: Router = AdaptiveRouter(self.config.router, self.tool_zoo)
         self.session_manager = SessionManager(self.config.session)
         self.connection_pool: ConnectionPool = LazyConnectionPool(self.config)
+
+        # Telemetry integration
+        self._telemetry_store = get_telemetry_store()
+        self._jsonl_exporter = get_jsonl_exporter()
+        self._prometheus_metrics = get_prometheus_metrics()
 
         # MCP Server instance
         self._server = Server(self.config.server.name)
@@ -97,8 +111,28 @@ class UCPServer:
         if not self._current_session:
             self._current_session = self.session_manager.create_session()
 
+        # Generate new request ID for this operation
+        start_time = time.time()
+        
         # Route to get relevant tools
         self._last_routing = await self.router.route(self._current_session)
+        selection_time_ms = (time.time() - start_time) * 1000
+        
+        # Log routing event to telemetry
+        routing_event = RoutingEvent(
+            session_id=self._current_session.session_id,
+            request_id=self.session_manager._current_request_id,
+            trace_id=self.session_manager._current_trace_id,
+            query_hash=hash_query(self._last_routing.query_used),
+            query_text=self._last_routing.query_used,
+            selected_tools=self._last_routing.selected_tools,
+            total_candidates=len(self._last_routing.selected_tools),
+            selection_time_ms=selection_time_ms,
+            strategy=self._last_routing.reasoning,
+        )
+        self._telemetry_store.log_routing_event(routing_event)
+        self._jsonl_exporter.export_routing_event(routing_event)
+        self._prometheus_metrics.observe_router_latency(selection_time_ms)
 
         # Convert to MCP Tool format
         tools: list[Tool] = []
@@ -125,7 +159,6 @@ class UCPServer:
         """
         Execute a tool call by routing to the appropriate server.
         """
-        import time
         start_time = time.time()
 
         try:
@@ -143,6 +176,22 @@ class UCPServer:
                     success=True,
                     execution_time_ms=execution_time,
                 )
+
+            # Log tool call to telemetry
+            tool_call_event = ToolCallEvent(
+                session_id=self._current_session.session_id,
+                request_id=self.session_manager._current_request_id,
+                routing_event_id=self._last_routing.event_id if self._last_routing else None,
+                trace_id=self.session_manager._current_trace_id,
+                tool_name=name,
+                success=True,
+                execution_time_ms=execution_time,
+                was_selected=name in self._last_routing.selected_tools if self._last_routing else [],
+                selection_rank=self._last_routing.selected_tools.index(name) if self._last_routing and name in self._last_routing.selected_tools else -1,
+            )
+            self._telemetry_store.log_tool_call(tool_call_event)
+            self._jsonl_exporter.export_tool_call(tool_call_event)
+            self._prometheus_metrics.inc_tool_invocation(name, success=True)
 
             # Update router with actual usage
             if isinstance(self.router, AdaptiveRouter) and self._last_routing:
@@ -173,6 +222,24 @@ class UCPServer:
                     execution_time_ms=execution_time,
                     error=str(e),
                 )
+
+            # Log failed tool call to telemetry
+            tool_call_event = ToolCallEvent(
+                session_id=self._current_session.session_id if self._current_session else None,
+                request_id=self.session_manager._current_request_id,
+                routing_event_id=self._last_routing.event_id if self._last_routing else None,
+                trace_id=self.session_manager._current_trace_id,
+                tool_name=name,
+                success=False,
+                error_class=type(e).__name__,
+                error_message=str(e),
+                execution_time_ms=execution_time,
+                was_selected=name in self._last_routing.selected_tools if self._last_routing else [],
+                selection_rank=self._last_routing.selected_tools.index(name) if self._last_routing and name in self._last_routing.selected_tools else -1,
+            )
+            self._telemetry_store.log_tool_call(tool_call_event)
+            self._jsonl_exporter.export_tool_call(tool_call_event)
+            self._prometheus_metrics.inc_tool_invocation(name, success=False)
 
             logger.error(
                 "tool_call_failed",
@@ -252,6 +319,12 @@ class UCPServer:
             self.session_manager.close()
         except Exception as e:
             logger.warning("shutdown_error", component="session_manager", error=str(e))
+
+        # Close telemetry store
+        try:
+            self._telemetry_store.close()
+        except Exception as e:
+            logger.warning("shutdown_error", component="telemetry_store", error=str(e))
 
         logger.info("ucp_shutdown_complete")
 
@@ -336,6 +409,152 @@ class UCPServerBuilder:
         return self
 
     def build(self) -> UCPServer:
+        """Build UCP server with configured components."""
+        config = self._config or UCPConfig.load()
+
+        server = UCPServer(config)
+
+        if self._tool_zoo:
+            server.tool_zoo = self._tool_zoo
+        if self._router:
+            server.router = self._router
+        if self._session_manager:
+            server.session_manager = self._session_manager
+        if self._connection_pool:
+            server.connection_pool = self._connection_pool
+
+        return server
+                self.router.get_learning_stats()
+                if isinstance(self.router, AdaptiveRouter)
+                else {}
+            ),
+            "current_session": (
+                str(self._current_session.session_id)
+                if self._current_session
+                else None
+            ),
+            "last_routing": (
+                {
+                    "selected_tools": self._last_routing.selected_tools,
+                    "reasoning": self._last_routing.reasoning,
+                }
+                if self._last_routing
+                else None
+            ),
+        }
+
+
+class UCPServerBuilder:
+    """
+    Builder pattern for constructing UCP servers with custom components.
+    """
+
+    def __init__(self) -> None:
+        self._config: UCPConfig | None = None
+        self._tool_zoo: ToolZoo | None = None
+        self._router: Router | None = None
+        self._session_manager: SessionManager | None = None
+        self._connection_pool: ConnectionPool | None = None
+
+    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
+        self._config = config
+        return self
+
+    def with_config_file(self, path: str) -> UCPServerBuilder:
+        self._config = UCPConfig.from_yaml(path)
+        return self
+
+    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
+        self._tool_zoo = tool_zoo
+        return self
+
+    def with_router(self, router: Router) -> UCPServerBuilder:
+        self._router = router
+        return self
+
+    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
+        self._session_manager = session_manager
+        return self
+
+    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
+        self._connection_pool = pool
+        return self
+
+    def build(self) -> UCPServer:
+        """Build UCP server with configured components."""
+        config = self._config or UCPConfig.load()
+
+        server = UCPServer(config)
+
+        if self._tool_zoo:
+            server.tool_zoo = self._tool_zoo
+        if self._router:
+            server.router = self._router
+        if self._session_manager:
+            server.session_manager = self._session_manager
+        if self._connection_pool:
+            server.connection_pool = self._connection_pool
+
+        return server
+
+            "router": (
+                self.router.get_learning_stats()
+                if isinstance(self.router, AdaptiveRouter)
+                else {}
+            ),
+            "current_session": (
+                str(self._current_session.session_id)
+                if self._current_session
+                else None
+            ),
+            "last_routing": (
+                {
+                    "selected_tools": self._last_routing.selected_tools,
+                    "reasoning": self._last_routing.reasoning,
+                }
+                if self._last_routing
+                else None
+            ),
+        }
+
+
+class UCPServerBuilder:
+    """
+    Builder pattern for constructing UCP servers with custom components.
+    """
+
+    def __init__(self) -> None:
+        self._config: UCPConfig | None = None
+        self._tool_zoo: ToolZoo | None = None
+        self._router: Router | None = None
+        self._session_manager: SessionManager | None = None
+        self._connection_pool: ConnectionPool | None = None
+
+    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
+        self._config = config
+        return self
+
+    def with_config_file(self, path: str) -> UCPServerBuilder:
+        self._config = UCPConfig.from_yaml(path)
+        return self
+
+    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
+        self._tool_zoo = tool_zoo
+        return self
+
+    def with_router(self, router: Router) -> UCPServerBuilder:
+        self._router = router
+        return self
+
+    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
+        self._session_manager = session_manager
+        return self
+
+    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
+        self._connection_pool = pool
+        return self
+
+    def build(self) -> UCPServer:
         """Build the UCP server with configured components."""
         config = self._config or UCPConfig.load()
 
@@ -351,3 +570,152 @@ class UCPServerBuilder:
             server.connection_pool = self._connection_pool
 
         return server
+
+            "router": (
+                self.router.get_learning_stats()
+                if isinstance(self.router, AdaptiveRouter)
+                else {}
+            ),
+            "current_session": (
+                str(self._current_session.session_id)
+                if self._current_session
+                else None
+            ),
+            "last_routing": (
+                {
+                    "selected_tools": self._last_routing.selected_tools,
+                    "reasoning": self._last_routing.reasoning,
+                }
+                if self._last_routing
+                else None
+            ),
+        }
+
+
+class UCPServerBuilder:
+    """
+    Builder pattern for constructing UCP servers with custom components.
+    """
+
+    def __init__(self) -> None:
+        self._config: UCPConfig | None = None
+        self._tool_zoo: ToolZoo | None = None
+        self._router: Router | None = None
+        self._session_manager: SessionManager | None = None
+        self._connection_pool: ConnectionPool | None = None
+
+    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
+        self._config = config
+        return self
+
+    def with_config_file(self, path: str) -> UCPServerBuilder:
+        self._config = UCPConfig.from_yaml(path)
+        return self
+
+    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
+        self._tool_zoo = tool_zoo
+        return self
+
+    def with_router(self, router: Router) -> UCPServerBuilder:
+        self._router = router
+        return self
+
+    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
+        self._session_manager = session_manager
+        return self
+
+    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
+        self._connection_pool = pool
+        return self
+
+    def build(self) -> UCPServer:
+        """Build the UCP server with configured components."""
+        config = self._config or UCPConfig.load()
+
+        server = UCPServer(config)
+
+        if self._tool_zoo:
+            server.tool_zoo = self._tool_zoo
+        if self._router:
+            server.router = self._router
+        if self._session_manager:
+            server.session_manager = self._session_manager
+        if self._connection_pool:
+            server.connection_pool = self._connection_pool
+
+        return server
+            "router": (
+                self.router.get_learning_stats()
+                if isinstance(self.router, AdaptiveRouter)
+                else {}
+            ),
+            "current_session": (
+                str(self._current_session.session_id)
+                if self._current_session
+                else None
+            ),
+            "last_routing": (
+                {
+                    "selected_tools": self._last_routing.selected_tools,
+                    "reasoning": self._last_routing.reasoning,
+                }
+                if self._last_routing
+                else None
+            ),
+        }
+
+
+class UCPServerBuilder:
+    """
+    Builder pattern for constructing UCP servers with custom components.
+    """
+
+    def __init__(self) -> None:
+        self._config: UCPConfig | None = None
+        self._tool_zoo: ToolZoo | None = None
+        self._router: Router | None = None
+        self._session_manager: SessionManager | None = None
+        self._connection_pool: ConnectionPool | None = None
+
+    def with_config(self, config: UCPConfig) -> UCPServerBuilder:
+        self._config = config
+        return self
+
+    def with_config_file(self, path: str) -> UCPServerBuilder:
+        self._config = UCPConfig.from_yaml(path)
+        return self
+
+    def with_tool_zoo(self, tool_zoo: ToolZoo) -> UCPServerBuilder:
+        self._tool_zoo = tool_zoo
+        return self
+
+    def with_router(self, router: Router) -> UCPServerBuilder:
+        self._router = router
+        return self
+
+    def with_session_manager(self, session_manager: SessionManager) -> UCPServerBuilder:
+        self._session_manager = session_manager
+        return self
+
+    def with_connection_pool(self, pool: ConnectionPool) -> UCPServerBuilder:
+        self._connection_pool = pool
+        return self
+
+    def build(self) -> UCPServer:
+        """Build the UCP server with configured components."""
+        config = self._config or UCPConfig.load()
+
+        server = UCPServer(config)
+
+        if self._tool_zoo:
+            server.tool_zoo = self._tool_zoo
+        if self._router:
+            server.router = self._router
+        if self._session_manager:
+            server.session_manager = self._session_manager
+        if self._connection_pool:
+            server.connection_pool = self._connection_pool
+
+        return server
+
+
