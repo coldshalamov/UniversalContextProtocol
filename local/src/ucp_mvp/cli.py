@@ -48,8 +48,8 @@ def setup_logging(level: str = "INFO") -> None:
 
 def cmd_serve(args: argparse.Namespace) -> None:
     """Run the UCP server."""
-    from ucp.config import UCPConfig
-    from ucp.server import UCPServer
+    from ucp_core.config import UCPConfig
+    from ucp_mvp.server import UCPServer
 
     setup_logging(args.log_level)
     logger = structlog.get_logger(__name__)
@@ -78,8 +78,8 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show UCP status."""
-    from ucp.config import UCPConfig
-    from ucp.server import UCPServer
+    from ucp_core.config import UCPConfig
+    from ucp_mvp.server import UCPServer
 
     setup_logging("WARNING")
 
@@ -97,9 +97,9 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_index(args: argparse.Namespace) -> None:
     """Index tools from downstream servers."""
-    from ucp.config import UCPConfig
-    from ucp.connection_pool import ConnectionPool
-    from ucp.tool_zoo import HybridToolZoo
+    from ucp_core.config import UCPConfig
+    from ucp_mvp.connection_pool import ConnectionPool
+    from ucp_mvp.tool_zoo import HybridToolZoo
 
     setup_logging(args.log_level)
     logger = structlog.get_logger(__name__)
@@ -133,8 +133,8 @@ def cmd_index(args: argparse.Namespace) -> None:
 
 def cmd_search(args: argparse.Namespace) -> None:
     """Search for tools by query."""
-    from ucp.config import UCPConfig
-    from ucp.tool_zoo import HybridToolZoo
+    from ucp_core.config import UCPConfig
+    from ucp_mvp.tool_zoo import HybridToolZoo
 
     setup_logging("WARNING")
 
