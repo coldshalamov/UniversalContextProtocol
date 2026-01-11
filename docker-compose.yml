@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # UCP Gateway Service
+  ucp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ucpproject/ucp:0.1.0-alpha1
+    container_name: ucp-gateway
+    volumes:
+      # Mount data directory for ChromaDB persistence
+      - ucp-data:/data
+      # Mount config directory (optional, for custom configuration)
+      - ./ucp_config.yaml:/app/ucp_config.yaml:ro
+    environment:
+      # UCP Configuration
+      - UCP_LOG_LEVEL=INFO
+      - UCP_DATA_DIR=/data
+      # Optional: Override config file location
+      - UCP_CONFIG_FILE=/app/ucp_config.yaml
+    networks:
+      - ucp-network
+    restart: unless-stopped
+    # Expose port for future HTTP transport support
+    ports:
+      - "8000:8000"
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Example: Filesystem MCP Server (mock)
+  # This is a placeholder for a filesystem MCP server
+  # In production, you would replace this with an actual MCP server
+  filesystem-server:
+    image: alpine:latest
+    container_name: filesystem-mcp-server
+    volumes:
+      - filesystem-data:/data
+    command: ["sh", "-c", "tail -f /dev/null"]
+    networks:
+      - ucp-network
+    restart: unless-stopped
+
+  # Example: GitHub MCP Server (mock)
+  # This is a placeholder for a GitHub MCP server
+  # In production, you would replace this with an actual MCP server
+  github-server:
+    image: alpine:latest
+    container_name: github-mcp-server
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    volumes:
+      - github-data:/data
+    command: ["sh", "-c", "tail -f /dev/null"]
+    networks:
+      - ucp-network
+    restart: unless-stopped
+
+  # Example: Slack MCP Server (mock)
+  # This is a placeholder for a Slack MCP server
+  # In production, you would replace this with an actual MCP server
+  slack-server:
+    image: alpine:latest
+    container_name: slack-mcp-server
+    environment:
+      - SLACK_TOKEN=${SLACK_TOKEN:-}
+    volumes:
+      - slack-data:/data
+    command: ["sh", "-c", "tail -f /dev/null"]
+    networks:
+      - ucp-network
+    restart: unless-stopped
+
+# Named volumes for data persistence
+volumes:
+  ucp-data:
+    driver: local
+  filesystem-data:
+    driver: local
+  github-data:
+    driver: local
+  slack-data:
+    driver: local
+
+# Network configuration
+networks:
+  ucp-network:
+    driver: bridge

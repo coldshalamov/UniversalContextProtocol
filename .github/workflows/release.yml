@@ -1,0 +1,316 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-python-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Build ucp-core package
+        run: |
+          cd shared
+          uv build --wheel --sdist
+
+      - name: Build ucp-mvp package
+        run: |
+          cd local
+          uv build --wheel --sdist
+
+      - name: Build ucp-cloud package
+        run: |
+          cd cloud
+          uv build --wheel --sdist
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-packages
+          path: |
+            shared/dist/
+            local/dist/
+            cloud/dist/
+
+  build-docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/ucp:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKER_USERNAME }}/ucp:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ucp:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ucp:buildcache,mode=max
+
+  publish-to-pypi:
+    runs-on: ubuntu-latest
+    needs: [build-python-packages]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ucp
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+
+      - name: Publish ucp-core to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/shared/dist
+          skip-existing: true
+
+      - name: Publish ucp-mvp to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/local/dist
+          skip-existing: true
+
+      - name: Publish ucp-cloud to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/cloud/dist
+          skip-existing: true
+
+  create-github-release:
+    runs-on: ubuntu-latest
+    needs: [build-python-packages, build-docker-image, publish-to-pypi]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "## What's Changed" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### 📦 Python Packages" >> release_notes.md
+          echo "- \`ucp-core\`: \`pip install ucp-core\`" >> release_notes.md
+          echo "- \`ucp-mvp\`: \`pip install ucp-mvp\`" >> release_notes.md
+          echo "- \`ucp-cloud\`: \`pip install ucp-cloud\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### 🐳 Docker Image" >> release_notes.md
+          echo "- \`docker pull ${{ secrets.DOCKER_USERNAME }}/ucp:$VERSION\`" >> release_notes.md
+          echo "- \`docker pull ${{ secrets.DOCKER_USERNAME }}/ucp:latest\`" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: |
+            dist/shared/dist/*
+            dist/local/dist/*
+            dist/cloud/dist/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-python-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Build ucp-core package
+        run: |
+          cd shared
+          uv build --wheel --sdist
+
+      - name: Build ucp-mvp package
+        run: |
+          cd local
+          uv build --wheel --sdist
+
+      - name: Build ucp-cloud package
+        run: |
+          cd cloud
+          uv build --wheel --sdist
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-packages
+          path: |
+            shared/dist/
+            local/dist/
+            cloud/dist/
+
+  build-docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/ucp:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKER_USERNAME }}/ucp:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ucp:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/ucp:buildcache,mode=max
+
+  publish-to-pypi:
+    runs-on: ubuntu-latest
+    needs: [build-python-packages]
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ucp
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+
+      - name: Publish ucp-core to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/shared/dist
+          skip-existing: true
+
+      - name: Publish ucp-mvp to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/local/dist
+          skip-existing: true
+
+      - name: Publish ucp-cloud to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/cloud/dist
+          skip-existing: true
+
+  create-github-release:
+    runs-on: ubuntu-latest
+    needs: [build-python-packages, build-docker-image, publish-to-pypi]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-packages
+          path: dist/
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "## What's Changed" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### 📦 Python Packages" >> release_notes.md
+          echo "- \`ucp-core\`: \`pip install ucp-core\`" >> release_notes.md
+          echo "- \`ucp-mvp\`: \`pip install ucp-mvp\`" >> release_notes.md
+          echo "- \`ucp-cloud\`: \`pip install ucp-cloud\`" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### 🐳 Docker Image" >> release_notes.md
+          echo "- \`docker pull ${{ secrets.DOCKER_USERNAME }}/ucp:$VERSION\`" >> release_notes.md
+          echo "- \`docker pull ${{ secrets.DOCKER_USERNAME }}/ucp:latest\`" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: |
+            dist/shared/dist/*
+            dist/local/dist/*
+            dist/cloud/dist/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

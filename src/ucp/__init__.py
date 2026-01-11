@@ -6,7 +6,7 @@ relevant tool schemas based on conversation context.
 
 UCP presents itself as a single MCP server while internally orchestrating
 a fleet of downstream MCP servers, using predictive routing to inject
-only the most relevant subset of tools.
+only most relevant subset of tools.
 
 Quick Start:
     from ucp import UCPServer, UCPConfig
@@ -20,7 +20,7 @@ Quick Start:
 __version__ = "0.1.0"
 
 # Core classes
-from ucp.server import UCPServer, UCPServerBuilder
+from ucp.server import UCPServer
 from ucp.config import UCPConfig, DownstreamServerConfig
 
 # Components
@@ -48,7 +48,6 @@ __all__ = [
     "__version__",
     # Core
     "UCPServer",
-    "UCPServerBuilder",
     "UCPConfig",
     "DownstreamServerConfig",
     # Components

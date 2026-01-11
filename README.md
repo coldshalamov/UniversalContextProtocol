@@ -1,6 +1,144 @@
 # Universal Context Protocol (UCP)
 
-> **The missing layer between LLMs and their tools.** UCP solves "Tool Overload" by dynamically injecting only the relevant tool schemas based on conversation context.
+![PyPI version](https://badge.fury.io/py/ucp.svg)
+![Tests](https://github.com/yourusername/UniversalContextProtocol/actions/workflows/test.yml/badge.svg)
+![Lint](https://github.com/yourusername/UniversalContextProtocol/actions/workflows/lint.yml/badge.svg)
+![Coverage](https://codecov.io/gh/yourusername/UniversalContextProtocol/branch/main/graph/badge.svg)
+
+> **The missing layer between LLMs and their tools.** UCP solves "Tool Overload" by dynamically injecting only relevant tool schemas based on conversation context.
+
+## Installation
+
+### Install from PyPI
+
+```bash
+pip install ucp
+```
+
+### Install from Source
+
+```bash
+git clone https://github.com/yourusername/UniversalContextProtocol.git
+cd UniversalContextProtocol
+pip install -e .
+```
+
+### Docker Installation
+
+UCP can be deployed using Docker for easy setup and consistent environments.
+
+#### Build Docker Image
+
+```bash
+# Build the UCP Docker image
+docker build -t ucpproject/ucp:0.1.0-alpha1 .
+
+# Or use docker-compose to build all services
+docker-compose build
+```
+
+#### Run with Docker
+
+```bash
+# Run UCP container
+docker run -d \
+  --name ucp-gateway \
+  -v ucp-data:/data \
+  -p 8000:8000 \
+  ucpproject/ucp:0.1.0-alpha1
+
+# Run with custom configuration
+docker run -d \
+  --name ucp-gateway \
+  -v ucp-data:/data \
+  -v $(pwd)/ucp_config.yaml:/app/ucp_config.yaml:ro \
+  -p 8000:8000 \
+  ucpproject/ucp:0.1.0-alpha1
+```
+
+#### Run with Docker Compose
+
+```bash
+# Start all services (UCP + example downstream servers)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f ucp
+
+# Stop all services
+docker-compose down
+```
+
+#### Docker Volumes
+
+The Docker image uses a volume at `/data` for ChromaDB persistence:
+
+```bash
+# List volumes
+docker volume ls
+
+# Inspect volume
+docker volume inspect ucp-data
+
+# Backup volume
+docker run --rm -v ucp-data:/data -v $(pwd):/backup alpine tar czf /backup/ucp-data-backup.tar.gz /data
+
+# Restore volume
+docker run --rm -v ucp-data:/data -v $(pwd):/backup alpine tar xzf /backup/ucp-data-backup.tar.gz -C /
+```
+
+#### Environment Variables
+
+You can configure UCP using environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `UCP_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | INFO |
+| `UCP_DATA_DIR` | Data directory path | /data |
+| `UCP_CONFIG_FILE` | Path to configuration file | /app/ucp_config.yaml |
+
+Example:
+
+```bash
+docker run -d \
+  --name ucp-gateway \
+  -v ucp-data:/data \
+  -e UCP_LOG_LEVEL=DEBUG \
+  -p 8000:8000 \
+  ucpproject/ucp:0.1.0-alpha1
+```
+
+#### Data Persistence
+
+The `/data` volume ensures your ChromaDB data persists across container restarts:
+
+```bash
+# Stop container (data is preserved in volume)
+docker stop ucp-gateway
+
+# Remove container (data is preserved in volume)
+docker rm ucp-gateway
+
+# Start new container with existing data
+docker run -d \
+  --name ucp-gateway \
+  -v ucp-data:/data \
+  -p 8000:8000 \
+  ucpproject/ucp:0.1.0-alpha1
+```
+
+## Quick Start
+
+```bash
+# Generate sample configuration
+ucp init-config
+
+# Start UCP server
+ucp serve
+
+# Or with custom config
+ucp serve -c ~/.ucp/ucp_config.yaml
+```
 
 ## Dual-Track Architecture
 
@@ -13,7 +151,7 @@ UCP is now organized into two complementary tracks with shared components:
 - **Open source**: Free to use and modify
 
 **Location**: [`local/`](local/)  
-**Installation**: `pip install ucp-mvp`  
+**Installation**: `pip install ucp`  
 **Status**: ✅ Available now
 
 ### ☁️ Cloud Version (Future Business)
@@ -125,7 +263,7 @@ For complete benchmark details, see [`clients/reports/baseline_benchmark_v0.1.js
 ### Local MVP (Available Now)
 
 ```bash
-pip install ucp-mvp
+pip install ucp
 ucp init-config
 ucp serve
 ```
@@ -147,7 +285,7 @@ Add to your Claude Desktop config:
 
 ### Cloud Version (Coming Soon)
 
-The cloud version is currently in planning. See [`cloud/docs/roadmap.md`](cloud/docs/roadmap.md) for the implementation timeline.
+The cloud version is currently in planning. See [`cloud/docs/roadmap.md`](cloud/docs/roadmap.md) for implementation timeline.
 
 ## How It Works
 
@@ -332,7 +470,7 @@ ruff check src/
 
 ### Installation Issues
 
-**Problem:** `pip install ucp-mvp` fails
+**Problem:** `pip install ucp` fails
 
 **Solutions:**
 1. Update pip: `pip install --upgrade pip`
@@ -355,7 +493,7 @@ ruff check src/
 **Solutions:**
 1. Verify server command is correct in config
 2. Check environment variables are set properly
-3. Test server independently: run the MCP server command directly
+3. Test server independently: run MCP server command directly
 4. Check firewall settings
 5. Review logs: `~/.ucp/logs/ucp.log` or `C:\Users\<username>\.ucp\logs\ucp.log`
 
@@ -394,9 +532,9 @@ ruff check src/
 
 | Error | Cause | Solution |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'ucp_mvp'` | Package not installed | Run `pip install ucp-mvp` |
+| `ModuleNotFoundError: No module named 'ucp'` | Package not installed | Run `pip install ucp` |
 | `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
-| `Connection refused` | Downstream server not running | Start the MCP server or check configuration |
+| `Connection refused` | Downstream server not running | Start MCP server or check configuration |
 | `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
 | `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
 
@@ -415,6 +553,7 @@ For more detailed troubleshooting steps, see:
 - **[cloud/README.md](cloud/README.md)** - Cloud version documentation
 - **[shared/README.md](shared/README.md)** - Shared components documentation
 - **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
 
 ## License
 
@@ -423,6 +562,141 @@ MIT License
 ---
 
 **UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+├── docs/                             # SHARED DOCUMENTATION
+│   ├── index.md
+│   ├── getting_started.md
+│   ├── debugging_playbook.md
+│   ├── evaluation_harness.md
+│   └── research/
+│
+├── reports/                          # AUDIT AND VALIDATION REPORTS
+├── plans/                            # PLANNING DOCUMENTS
+└── archive/                          # ARCHIVED CODE (Original monolithic codebase)
+```
+
+## CLI Reference
+
+```bash
+# Start UCP server
+ucp serve [-c CONFIG] [--log-level DEBUG|INFO|WARNING|ERROR]
+
+# Index tools from downstream servers
+ucp index [-c CONFIG]
+
+# Search for tools
+ucp search QUERY [-k TOP_K] [--hybrid]
+
+# Show server status
+ucp status [-c CONFIG]
+
+# Generate sample configuration
+ucp init-config [-o OUTPUT_PATH]
+```
+
+## Debug Dashboard
+
+Launch Streamlit dashboard to visualize UCP internals:
+
+```bash
+pip install streamlit
+streamlit run local/src/ucp_mvp/dashboard.py
+```
+
+Features:
+- Search tools with live results
+- View Tool Zoo statistics
+- Explore session history
+- Monitor router learning
+
+## Research Foundation
+
+UCP synthesizes ideas from:
+
+- **[Gorilla](https://arxiv.org/abs/2305.15334)**: RAFT (Retrieval-Augmented Fine-Tuning) for tool selection
+- **[ReAct](https://arxiv.org/abs/2210.03629)**: Interleaved reasoning and acting
+- **[MemGPT](https://arxiv.org/abs/2310.11511)**: OS-style context management
+- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Cyclic state machine orchestration
+
+See [`docs/`](docs/) folder for detailed synthesis documents.
+
+## Development
+
+For detailed development guidelines, see [`DEVELOPMENT_GUIDE.md`](DEVELOPMENT_GUIDE.md).
+
+### Local MVP Development
+
+```bash
+cd local
+pip install -e ".[dev]"
+```
+
+### Cloud Development
+
+```bash
+cd cloud
+pip install -e ".[dev]"
+```
+
+### Shared Components Development
+
+```bash
+cd shared
+pip install -e ".[dev]"
+```
+
+### Testing
+
+```bash
+# Run tests
+pytest tests/ -v
+
+# Type checking
+mypy src/
+
+# Linting
+ruff check src/
+```
+
+## Troubleshooting
+
+### Installation Issues
+
+**Problem:** `pip install ucp` fails
+
+**Solutions:**
+1. Update pip: `pip install --upgrade pip`
+2. Use virtual environment: `python -m venv venv && source venv/bin/activate`
+3. Install from source instead
+
+### Configuration Issues
+
+**Problem:** `ucp init-config` fails
+
+**Solutions:**
+1. Check write permissions: `ls -la ~/.ucp` (Linux/macOS) or check `C:\Users\<username>\.ucp` (Windows)
+2. Create directory manually: `mkdir -p ~/.ucp` (Linux/macOS) or manually create folder on Windows
+3. Check disk space
+
+### Connection Issues
+
+**Problem:** Downstream servers not connecting
+
+**Solutions:**
+1. Verify server command is correct in config
+2. Check environment variables are set properly
+3. Test server independently: run MCP server command directly
+4. Check firewall settings
+5. Review logs: `~/.ucp/logs/ucp.log` or `C:\Users\<username>\.ucp\logs\ucp.log`
+
+### Tool Indexing Issues
+
+**Problem:** `ucp index` returns no tools
+
+**Solutions:**
+1. Verify downstream servers are configured in `ucp_config.yaml`
+2. Check downstream servers are accessible
+3. Run with verbose logging: `ucp index --log-level DEBUG`
+4. Check ChromaDB installation: `pip show chromadb`
 
 ### Performance Issues
 
@@ -449,9 +723,9 @@ MIT License
 
 | Error | Cause | Solution |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'ucp_mvp'` | Package not installed | Run `pip install ucp-mvp` |
+| `ModuleNotFoundError: No module named 'ucp'` | Package not installed | Run `pip install ucp` |
 | `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
-| `Connection refused` | Downstream server not running | Start the MCP server or check configuration |
+| `Connection refused` | Downstream server not running | Start MCP server or check configuration |
 | `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
 | `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
 
@@ -470,6 +744,7 @@ For more detailed troubleshooting steps, see:
 - **[cloud/README.md](cloud/README.md)** - Cloud version documentation
 - **[shared/README.md](shared/README.md)** - Shared components documentation
 - **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
 
 ## License
 
@@ -478,4 +753,391 @@ MIT License
 ---
 
 **UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+
+│   ├── infrastructure/              # Terraform/Helm/Docker
+│   └── clients/                      # VS Code extension, web client
+│
+├── docs/                             # SHARED DOCUMENTATION
+│   ├── index.md
+│   ├── getting_started.md
+│   ├── debugging_playbook.md
+│   ├── evaluation_harness.md
+│   └── research/
+│
+├── reports/                          # AUDIT AND VALIDATION REPORTS
+├── plans/                            # PLANNING DOCUMENTS
+└── archive/                          # ARCHIVED CODE (Original monolithic codebase)
+```
+
+## CLI Reference
+
+```bash
+# Start UCP server
+ucp serve [-c CONFIG] [--log-level DEBUG|INFO|WARNING|ERROR]
+
+# Index tools from downstream servers
+ucp index [-c CONFIG]
+
+# Search for tools
+ucp search QUERY [-k TOP_K] [--hybrid]
+
+# Show server status
+ucp status [-c CONFIG]
+
+# Generate sample configuration
+ucp init-config [-o OUTPUT_PATH]
+```
+
+## Debug Dashboard
+
+Launch Streamlit dashboard to visualize UCP internals:
+
+```bash
+pip install streamlit
+streamlit run local/src/ucp_mvp/dashboard.py
+```
+
+Features:
+- Search tools with live results
+- View Tool Zoo statistics
+- Explore session history
+- Monitor router learning
+
+## Research Foundation
+
+UCP synthesizes ideas from:
+
+- **[Gorilla](https://arxiv.org/abs/2305.15334)**: RAFT (Retrieval-Augmented Fine-Tuning) for tool selection
+- **[ReAct](https://arxiv.org/abs/2210.03629)**: Interleaved reasoning and acting
+- **[MemGPT](https://arxiv.org/abs/2310.11511)**: OS-style context management
+- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Cyclic state machine orchestration
+
+See [`docs/`](docs/) folder for detailed synthesis documents.
+
+## Development
+
+For detailed development guidelines, see [`DEVELOPMENT_GUIDE.md`](DEVELOPMENT_GUIDE.md).
+
+### Local MVP Development
+
+```bash
+cd local
+pip install -e ".[dev]"
+```
+
+### Cloud Development
+
+```bash
+cd cloud
+pip install -e ".[dev]"
+```
+
+### Shared Components Development
+
+```bash
+cd shared
+pip install -e ".[dev]"
+```
+
+### Testing
+
+```bash
+# Run tests
+pytest tests/ -v
+
+# Type checking
+mypy src/
+
+# Linting
+ruff check src/
+```
+
+## Troubleshooting
+
+### Installation Issues
+
+**Problem:** `pip install ucp` fails
+
+**Solutions:**
+1. Update pip: `pip install --upgrade pip`
+2. Use virtual environment: `python -m venv venv && source venv/bin/activate`
+3. Install from source instead
+
+### Configuration Issues
+
+**Problem:** `ucp init-config` fails
+
+**Solutions:**
+1. Check write permissions: `ls -la ~/.ucp` (Linux/macOS) or check `C:\Users\<username>\.ucp` (Windows)
+2. Create directory manually: `mkdir -p ~/.ucp` (Linux/macOS) or manually create folder on Windows
+3. Check disk space
+
+### Connection Issues
+
+**Problem:** Downstream servers not connecting
+
+**Solutions:**
+1. Verify server command is correct in config
+2. Check environment variables are set properly
+3. Test server independently: run MCP server command directly
+4. Check firewall settings
+5. Review logs: `~/.ucp/logs/ucp.log` or `C:\Users\<username>\.ucp\logs\ucp.log`
+
+### Tool Indexing Issues
+
+**Problem:** `ucp index` returns no tools
+
+**Solutions:**
+1. Verify downstream servers are configured in `ucp_config.yaml`
+2. Check downstream servers are accessible
+3. Run with verbose logging: `ucp index --log-level DEBUG`
+4. Check ChromaDB installation: `pip show chromadb`
+
+### Performance Issues
+
+**Problem:** UCP is slow
+
+**Solutions:**
+1. Reduce `top_k` in configuration (default is 5, try 3)
+2. Use smaller embedding model: `all-MiniLM-L6-v2` (already default)
+3. Enable caching in configuration
+4. Check system resources (CPU, memory usage)
+
+### Claude Desktop Integration Issues
+
+**Problem:** Claude Desktop doesn't show UCP tools
+
+**Solutions:**
+1. Verify UCP server is running: `ucp status`
+2. Check Claude Desktop config path is correct
+3. Restart Claude Desktop after config changes
+4. Check Claude Desktop logs for errors
+5. Test with debug logging: `ucp serve --log-level DEBUG`
+
+### Common Errors
+
+| Error | Cause | Solution |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'ucp'` | Package not installed | Run `pip install ucp` |
+| `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
+| `Connection refused` | Downstream server not running | Start MCP server or check configuration |
+| `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
+| `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
+
+### Getting Help
+
+For more detailed troubleshooting steps, see:
+- **[docs/debugging_playbook.md](docs/debugging_playbook.md)** - Comprehensive debugging guide
+- **[local/docs/getting_started.md](local/docs/getting_started.md)** - Detailed setup instructions
+- **GitHub Issues** - Report bugs and get community help
+
+## Documentation
+
+- **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** - Complete documentation navigation guide
+- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Development guidelines for both versions
+- **[local/README.md](local/README.md)** - Local MVP documentation
+- **[cloud/README.md](cloud/README.md)** - Cloud version documentation
+- **[shared/README.md](shared/README.md)** - Shared components documentation
+- **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+
+## License
+
+MIT License
+
+---
+
+**UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+├── docs/                             # SHARED DOCUMENTATION
+│   ├── index.md
+│   ├── getting_started.md
+│   ├── debugging_playbook.md
+│   ├── evaluation_harness.md
+│   └── research/
+│
+├── reports/                          # AUDIT AND VALIDATION REPORTS
+├── plans/                            # PLANNING DOCUMENTS
+└── archive/                          # ARCHIVED CODE (Original monolithic codebase)
+```
+
+## CLI Reference
+
+```bash
+# Start UCP server
+ucp serve [-c CONFIG] [--log-level DEBUG|INFO|WARNING|ERROR]
+
+# Index tools from downstream servers
+ucp index [-c CONFIG]
+
+# Search for tools
+ucp search QUERY [-k TOP_K] [--hybrid]
+
+# Show server status
+ucp status [-c CONFIG]
+
+# Generate sample configuration
+ucp init-config [-o OUTPUT_PATH]
+```
+
+## Debug Dashboard
+
+Launch Streamlit dashboard to visualize UCP internals:
+
+```bash
+pip install streamlit
+streamlit run local/src/ucp_mvp/dashboard.py
+```
+
+Features:
+- Search tools with live results
+- View Tool Zoo statistics
+- Explore session history
+- Monitor router learning
+
+## Research Foundation
+
+UCP synthesizes ideas from:
+
+- **[Gorilla](https://arxiv.org/abs/2305.15334)**: RAFT (Retrieval-Augmented Fine-Tuning) for tool selection
+- **[ReAct](https://arxiv.org/abs/2210.03629)**: Interleaved reasoning and acting
+- **[MemGPT](https://arxiv.org/abs/2310.11511)**: OS-style context management
+- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Cyclic state machine orchestration
+
+See [`docs/`](docs/) folder for detailed synthesis documents.
+
+## Development
+
+For detailed development guidelines, see [`DEVELOPMENT_GUIDE.md`](DEVELOPMENT_GUIDE.md).
+
+### Local MVP Development
+
+```bash
+cd local
+pip install -e ".[dev]"
+```
+
+### Cloud Development
+
+```bash
+cd cloud
+pip install -e ".[dev]"
+```
+
+### Shared Components Development
+
+```bash
+cd shared
+pip install -e ".[dev]"
+```
+
+### Testing
+
+```bash
+# Run tests
+pytest tests/ -v
+
+# Type checking
+mypy src/
+
+# Linting
+ruff check src/
+```
+
+## Troubleshooting
+
+### Installation Issues
+
+**Problem:** `pip install ucp` fails
+
+**Solutions:**
+1. Update pip: `pip install --upgrade pip`
+2. Use virtual environment: `python -m venv venv && source venv/bin/activate`
+3. Install from source instead
+
+### Configuration Issues
+
+**Problem:** `ucp init-config` fails
+
+**Solutions:**
+1. Check write permissions: `ls -la ~/.ucp` (Linux/macOS) or check `C:\Users\<username>\.ucp` (Windows)
+2. Create directory manually: `mkdir -p ~/.ucp` (Linux/macOS) or manually create folder on Windows
+3. Check disk space
+
+### Connection Issues
+
+**Problem:** Downstream servers not connecting
+
+**Solutions:**
+1. Verify server command is correct in config
+2. Check environment variables are set properly
+3. Test server independently: run MCP server command directly
+4. Check firewall settings
+5. Review logs: `~/.ucp/logs/ucp.log` or `C:\Users\<username>\.ucp\logs\ucp.log`
+
+### Tool Indexing Issues
+
+**Problem:** `ucp index` returns no tools
+
+**Solutions:**
+1. Verify downstream servers are configured in `ucp_config.yaml`
+2. Check downstream servers are accessible
+3. Run with verbose logging: `ucp index --log-level DEBUG`
+4. Check ChromaDB installation: `pip show chromadb`
+
+### Performance Issues
+
+**Problem:** UCP is slow
+
+**Solutions:**
+1. Reduce `top_k` in configuration (default is 5, try 3)
+2. Use smaller embedding model: `all-MiniLM-L6-v2` (already default)
+3. Enable caching in configuration
+4. Check system resources (CPU, memory usage)
+
+### Claude Desktop Integration Issues
+
+**Problem:** Claude Desktop doesn't show UCP tools
+
+**Solutions:**
+1. Verify UCP server is running: `ucp status`
+2. Check Claude Desktop config path is correct
+3. Restart Claude Desktop after config changes
+4. Check Claude Desktop logs for errors
+5. Test with debug logging: `ucp serve --log-level DEBUG`
+
+### Common Errors
+
+| Error | Cause | Solution |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'ucp'` | Package not installed | Run `pip install ucp` |
+| `Permission denied: '~/.ucp'` | No write permissions | Create directory manually or run with appropriate permissions |
+| `Connection refused` | Downstream server not running | Start MCP server or check configuration |
+| `No tools found` | Tool zoo empty | Run `ucp index` to populate tools |
+| `ChromaDB error` | Vector database issue | Reinstall chromadb: `pip install --force-reinstall chromadb` |
+
+### Getting Help
+
+For more detailed troubleshooting steps, see:
+- **[docs/debugging_playbook.md](docs/debugging_playbook.md)** - Comprehensive debugging guide
+- **[local/docs/getting_started.md](local/docs/getting_started.md)** - Detailed setup instructions
+- **GitHub Issues** - Report bugs and get community help
+
+## Documentation
+
+- **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** - Complete documentation navigation guide
+- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Development guidelines for both versions
+- **[local/README.md](local/README.md)** - Local MVP documentation
+- **[cloud/README.md](cloud/README.md)** - Cloud version documentation
+- **[shared/README.md](shared/README.md)** - Shared components documentation
+- **[docs/production_deployment.md](docs/production_deployment.md)** - Production deployment guide
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+
+## License
+
+MIT License
+
+---
+
+**UCP: Because your LLM shouldn't need to read 500 tool manuals to send an email.**
+
 

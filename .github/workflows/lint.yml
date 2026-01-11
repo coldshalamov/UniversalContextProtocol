@@ -1,0 +1,96 @@
+name: Lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv pip install ruff mypy black
+
+      - name: Run ruff for linting
+        run: |
+          ruff check shared/src local/src cloud/src src --output-format=github
+
+      - name: Run mypy for type checking
+        run: |
+          mypy shared/src local/src cloud/src src --strict --ignore-missing-imports
+
+      - name: Run black for code formatting checks
+        run: |
+          black --check shared/src local/src cloud/src src
+
+      - name: Run ruff format check
+        run: |
+          ruff format --check shared/src local/src cloud/src src
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv pip install ruff mypy black
+
+      - name: Run ruff for linting
+        run: |
+          ruff check shared/src local/src cloud/src src --output-format=github
+
+      - name: Run mypy for type checking
+        run: |
+          mypy shared/src local/src cloud/src src --strict --ignore-missing-imports
+
+      - name: Run black for code formatting checks
+        run: |
+          black --check shared/src local/src cloud/src src
+
+      - name: Run ruff format check
+        run: |
+          ruff format --check shared/src local/src cloud/src src
+
