@@ -411,3 +411,155 @@ class HybridToolZoo(ToolZoo):
         # Sort and return
         sorted_tools = sorted(combined.items(), key=lambda x: x[1], reverse=True)
         return [(tool_cache[name], score) for name, score in sorted_tools[:top_k]]
+
+
+class RegistryToolZoo(HybridToolZoo):
+    """
+    Extended Tool Zoo with registry capabilities.
+    
+    Adds support for loading and managing a centralized MCP registry
+    with rich metadata for discovery and recommendations.
+    """
+    
+    def __init__(self, config: ToolZooConfig) -> None:
+        super().__init__(config)
+        self._registry: dict[str, Any] = {}  # MCPRegistryEntry objects
+        self._use_case_templates: dict[str, Any] = {}  # UseCaseTemplate objects
+        self._registry_loaded = False
+    
+    def load_registry(self, registry_path: str) -> int:
+        """
+        Load registry from YAML file.
+        
+        Args:
+            registry_path: Path to registry YAML file
+            
+        Returns:
+            Number of MCPs loaded
+        """
+        import yaml
+        from ucp.registry import MCPRegistryEntry, UseCaseTemplate
+        
+        registry_file = Path(registry_path)
+        if not registry_file.exists():
+            logger.warning("registry_not_found", path=registry_path)
+            return 0
+        
+        try:
+            with open(registry_file) as f:
+                data = yaml.safe_load(f)
+        except Exception as e:
+            logger.error("failed_to_load_registry", error=str(e), path=registry_path)
+            return 0
+        
+        count = 0
+        
+        # Load MCPs
+        for mcp_data in data.get("mcps", []):
+            try:
+                entry = MCPRegistryEntry(**mcp_data)
+                self._registry[entry.name] = entry
+                count += 1
+            except Exception as e:
+                logger.error("failed_to_load_mcp_entry", error=str(e), data=mcp_data)
+        
+        # Load use case templates
+        for template_data in data.get("use_case_templates", []):
+            try:
+                template = UseCaseTemplate(**template_data)
+                self._use_case_templates[template.name] = template
+            except Exception as e:
+                logger.error("failed_to_load_template", error=str(e), data=template_data)
+        
+        self._registry_loaded = True
+        logger.info(
+            "registry_loaded",
+            mcps=count,
+            templates=len(self._use_case_templates),
+            path=registry_path
+        )
+        return count
+    
+    def get_registry_entry(self, name: str) -> Any | None:
+        """Get full registry entry for an MCP"""
+        return self._registry.get(name)
+    
+    def get_all_registry_entries(self) -> list[Any]:
+        """Get all registry entries"""
+        return list(self._registry.values())
+    
+    def get_all_tool_names(self) -> list[str]:
+        """Get all tool names from registry"""
+        return list(self._registry.keys())
+    
+    def search_by_category(self, category: str, top_k: int = 10) -> list[Any]:
+        """
+        Find MCPs by category.
+        
+        Args:
+            category: Category to filter by (e.g., "code", "communication")
+            top_k: Maximum number of results
+            
+        Returns:
+            List of MCPRegistryEntry objects
+        """
+        # Filter entries - categories might be strings or enums depending on how they were loaded
+        entries = []
+        for e in self._registry.values():
+            # Handle both string and enum values
+            if isinstance(e.categories, list) and e.categories:
+                # Check if category matches (handle both string and enum)
+                for cat in e.categories:
+                    cat_value = cat.value if hasattr(cat, 'value') else cat
+                    if cat_value == category:
+                        entries.append(e)
+                        break
+        
+        entries.sort(key=lambda e: e.popularity_score, reverse=True)
+        return entries[:top_k]
+    
+    def search_by_use_case(self, use_case: str, top_k: int = 5) -> list[Any]:
+        """
+        Find MCPs that match a use case.
+        
+        Uses keyword matching on use_cases field. For better results,
+        use semantic search via hybrid_search().
+        
+        Args:
+            use_case: Use case description
+            top_k: Maximum number of results
+            
+        Returns:
+            List of MCPRegistryEntry objects
+        """
+        results = []
+        use_case_lower = use_case.lower()
+        
+        for entry in self._registry.values():
+            # Check if use case matches any of the entry's use cases
+            for uc in entry.use_cases:
+                if use_case_lower in uc.lower():
+                    results.append(entry)
+                    break
+            
+            # Also check keywords
+            if not any(entry == r for r in results):
+                for keyword in entry.keywords:
+                    if keyword.lower() in use_case_lower or use_case_lower in keyword.lower():
+                        results.append(entry)
+                        break
+        
+        return results[:top_k]
+    
+    def get_use_case_template(self, name: str) -> Any | None:
+        """Get a use case template by name"""
+        return self._use_case_templates.get(name)
+    
+    def get_all_use_case_templates(self) -> list[Any]:
+        """Get all use case templates"""
+        return list(self._use_case_templates.values())
+    
+    def update_registry_entry(self, entry: Any) -> None:
+        """Update a registry entry (e.g., after collecting telemetry)"""
+        self._registry[entry.name] = entry
+        logger.info("registry_entry_updated", name=entry.name)
